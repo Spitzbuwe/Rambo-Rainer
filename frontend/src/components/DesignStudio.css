@@ -1,0 +1,223 @@
+.design-studio {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #f5f5f5;
+  box-sizing: border-box;
+}
+
+.design-studio-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 12px 20px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+}
+
+.design-studio-header__row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  justify-content: center;
+  position: relative;
+  flex-wrap: wrap;
+}
+
+.design-studio-tabs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.design-studio-tab {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.design-studio-tab--on {
+  background: rgba(255, 255, 255, 0.95);
+  color: #4c3a8c;
+  font-weight: 600;
+}
+
+.design-studio-container--3d {
+  flex: 1;
+  overflow: auto;
+  padding: 12px 20px;
+  background: #f5f5f5;
+}
+
+/* K.5 Code-IDE: lokale Code-Datei für ChatPanel (ohne zweiten Workflow) */
+.design-studio-code-upload {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-width: min(42%, 280px);
+  justify-content: flex-end;
+}
+
+.design-studio-code-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.design-studio-code-file-label {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.design-studio-code-file-label:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.design-studio-code-file-name {
+  font-size: 11px;
+  opacity: 0.95;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.design-studio-code-file-clear {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.25);
+  border: none;
+  color: white;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
+
+.design-studio-code-file-clear:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.design-studio-code-file-hint {
+  font-size: 11px;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.design-studio-header h1 {
+  margin: 0;
+  font-size: 22px;
+  text-align: center;
+}
+
+.design-studio-back {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  color: white;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.design-studio-back:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.design-studio-back-spacer {
+  position: absolute;
+  left: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.design-studio-container {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.chat-panel-wrapper {
+  width: 40%;
+  min-width: 280px;
+  border-right: 1px solid #ddd;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.canvas-wrapper {
+  width: 60%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+@media (max-width: 768px) {
+  .design-studio-container {
+    flex-direction: column;
+  }
+
+  .design-studio-header__row {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    padding-bottom: 8px;
+  }
+
+  .design-studio-back {
+    position: static;
+    transform: none;
+  }
+
+  .design-studio-code-upload {
+    position: static;
+    transform: none;
+    max-width: 100%;
+    width: 100%;
+    justify-content: flex-start;
+    margin-top: 8px;
+  }
+
+  .chat-panel-wrapper,
+  .canvas-wrapper {
+    width: 100%;
+    height: 50%;
+    min-height: 200px;
+  }
+}

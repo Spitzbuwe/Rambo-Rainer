@@ -1,0 +1,82 @@
+.canvas-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: #fff;
+}
+
+.canvas-header-row {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px 6px;
+  flex-shrink: 0;
+}
+
+.canvas-title h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.canvas-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.canvas-properties {
+  width: 220px;
+  min-width: 180px;
+  flex-shrink: 0;
+  border-left: 1px solid #ddd;
+  background: #fafafa;
+  overflow: auto;
+}
+
+.canvas-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  border-top: 1px solid #ddd;
+  background: #f8f9fa;
+  font-size: 12px;
+  color: #555;
+  flex-shrink: 0;
+}
+
+.canvas-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 240px;
+  padding: 24px;
+  color: #888;
+  text-align: center;
+}
+
+.empty-message {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 360px;
+}
+
+.empty-message p {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #666;
+}
+
+.empty-hint {
+  font-size: 13px;
+  font-weight: 400;
+  color: #999;
+  line-height: 1.45;
+}

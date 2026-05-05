@@ -1,0 +1,39 @@
+.admin-dashboard-root {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  padding: 16px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.admin-dashboard-bottom {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: #f0f4f8;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .admin-dashboard-root {
+    grid-template-columns: 1fr;
+  }
+}
+
+.admin-dashboard-card {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+  min-height: 120px;
+}
+
+.admin-dashboard-error-fallback {
+  padding: 12px;
+  background: #ffebee;
+  color: #b71c1c;
+  border-radius: 8px;
+  font-size: 13px;
+}

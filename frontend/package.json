@@ -1,0 +1,45 @@
+{
+  "name": "ki-dashboard",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "start": "vite",
+    "backend": "python ../backend/server.py",
+    "build": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:dashboard": "vitest run src/components/RamboManagementDashboard.test.jsx",
+    "test:preset": "vitest run src/components/PresetModal.test.jsx"
+  },
+  "dependencies": {
+    "katex": "^0.16.11",
+    "react": "^19.1.1",
+    "react-dnd": "^16.0.1",
+    "react-dnd-html5-backend": "^16.0.1",
+    "react-dom": "^19.1.1",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^15.6.1",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "socket.io-client": "^4.8.3",
+    "three": "^0.184.0",
+    "three-orbit-controls": "^82.1.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.5.0",
+    "jsdom": "^26.1.0",
+    "vite": "^8.0.8",
+    "vitest": "^3.2.4"
+  }
+}

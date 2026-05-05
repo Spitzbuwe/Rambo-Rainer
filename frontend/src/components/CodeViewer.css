@@ -1,0 +1,61 @@
+.code-viewer {
+  background: #1e1e1e;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #3e3e42;
+  margin: 12px 0;
+}
+
+.code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 15px;
+  background: #252526;
+  border-bottom: 1px solid #3e3e42;
+}
+
+.code-filename {
+  font-weight: bold;
+  color: #ce9178;
+  font-size: 13px;
+}
+
+.code-language {
+  font-size: 11px;
+  color: #858585;
+  background: #2d2d30;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.code-block {
+  margin: 0;
+  padding: 15px;
+  overflow-x: auto;
+  background: #1e1e1e;
+}
+
+.code-block code {
+  font-family: "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #d4d4d4;
+}
+
+/* Syntax-Highlighting (einfache Version) */
+.language-python {
+  color: #569cd6;
+}
+
+.language-javascript {
+  color: #d7ba7d;
+}
+
+.language-html {
+  color: #dcdcaa;
+}
+
+.language-css {
+  color: #c586c0;
+}

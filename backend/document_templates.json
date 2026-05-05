@@ -1,0 +1,48 @@
+{
+  "word_templates": {
+    "letter": {
+      "name": "Geschäftsbrief",
+      "structure": ["header", "recipient", "body", "signature"],
+      "default_content": {
+        "header": "Mein Unternehmen",
+        "signature": "Mit freundlichen Grüßen"
+      }
+    },
+    "report": {
+      "name": "Bericht",
+      "structure": ["title", "executive_summary", "body", "conclusion"],
+      "default_content": {
+        "title": "Bericht",
+        "executive_summary": "Zusammenfassung",
+        "conclusion": "Fazit folgt."
+      }
+    }
+  },
+  "excel_templates": {
+    "budget": {
+      "name": "Budget-Planung",
+      "sheets": ["Einnahmen", "Ausgaben", "Zusammenfassung"],
+      "formulas": {
+        "Zusammenfassung!B1": "=SUM(Einnahmen!B:B)-SUM(Ausgaben!B:B)"
+      }
+    },
+    "invoice": {
+      "name": "Rechnung",
+      "sheets": ["Positionen", "Zusammenfassung"],
+      "formulas": {
+        "Zusammenfassung!B5": "=SUM(Positionen!B:B)"
+      }
+    }
+  },
+  "powerpoint_templates": {
+    "presentation": {
+      "name": "Standard-Präsentation",
+      "slide_count": 3,
+      "slides": [
+        {"type": "title", "title": "Titel", "subtitle": "Untertitel"},
+        {"type": "content", "title": "Inhaltsfolie", "content": "Inhalt hier"},
+        {"type": "closing", "title": "Vielen Dank!", "content": "Fragen?"}
+      ]
+    }
+  }
+}

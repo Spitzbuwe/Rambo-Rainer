@@ -1,0 +1,109 @@
+{
+  "agentStatus": "ready",
+  "rambo": {
+    "agent_name": "Rambo Rainer",
+    "user_name": "Matze Mü",
+    "phase": "idle",
+    "last_route": "",
+    "last_task": "",
+    "last_action": "",
+    "last_summary": "",
+    "last_result_summary": "",
+    "last_target_file": "",
+    "last_error_class": "",
+    "last_error_type": "",
+    "last_error_message": "",
+    "last_error_file": "",
+    "last_error_time": "",
+    "last_block_reason": "",
+    "block_reason": "",
+    "guard_name": "",
+    "blocked_at": "",
+    "user_request": "",
+    "last_success_action": "",
+    "last_success_time": "",
+    "retry_count": 0,
+    "repeated_action": "",
+    "repeated_files": [],
+    "constraints": [],
+    "updated_at": "",
+    "self_improvement_active": false,
+    "self_improvement_target": "",
+    "self_improvement_plan": {},
+    "self_improvement_last_result": "",
+    "self_improvement_last_error": "",
+    "self_improvement_last_success": false,
+    "self_improvement_retry_count": 0,
+    "autopilot_active": true,
+    "autopilot_last_action": "",
+    "autopilot_last_status": "idle",
+    "autopilot_last_stop_reason": ""
+  },
+  "rambo_agent_policy": {
+    "version": 1,
+    "learned_user_rules": [
+      {
+        "rule_type": "persistent_rule",
+        "source": "user",
+        "value": "pytest rule alpha",
+        "reason": "explicit_marker",
+        "confidence": 0.75,
+        "fingerprint": "1111111111111111111111111111111111111111",
+        "active": true,
+        "rule_group": "behavior",
+        "priority": 50,
+        "stored_at": "2026-01-01T00:00:00Z",
+        "usage_count": 1
+      },
+      {
+        "rule_type": "persistent_rule",
+        "source": "user",
+        "value": "pytest rule beta",
+        "reason": "explicit_marker",
+        "confidence": 0.72,
+        "fingerprint": "2222222222222222222222222222222222222222",
+        "active": true,
+        "rule_group": "language",
+        "priority": 50,
+        "stored_at": "2026-01-01T00:01:00Z",
+        "usage_count": 1
+      }
+    ],
+    "learned_correction_streaks": {},
+    "rule_history": [
+      {
+        "id": "pytest_hist_rollback_001",
+        "timestamp": "2026-01-01T12:00:00Z",
+        "action": "rule_learned",
+        "fingerprint": null,
+        "intent": null,
+        "short_text": "seed snapshot for pytest rollback",
+        "previous_active": null,
+        "new_active": null,
+        "rollback_target_id": null,
+        "rules_count": 1,
+        "learned_user_rules_snapshot": [
+          {
+            "rule_type": "persistent_rule",
+            "source": "user",
+            "value": "pytest rule alpha",
+            "reason": "explicit_marker",
+            "confidence": 0.75,
+            "fingerprint": "1111111111111111111111111111111111111111",
+            "active": true,
+            "rule_group": "behavior",
+            "priority": 50,
+            "stored_at": "2026-01-01T00:00:00Z",
+            "usage_count": 1
+          }
+        ]
+      }
+    ],
+    "rule_group_settings": {
+      "formatting": { "active": true, "default_priority": 50 },
+      "language": { "active": true, "default_priority": 50 },
+      "workflow": { "active": true, "default_priority": 50 },
+      "behavior": { "active": true, "default_priority": 50 }
+    }
+  }
+}

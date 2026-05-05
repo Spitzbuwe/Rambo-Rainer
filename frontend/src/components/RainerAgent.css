@@ -1,0 +1,127 @@
+.rainer-agent-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  background: rgba(10, 12, 20, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.rainer-agent-modal {
+  width: min(720px, 100%);
+  max-height: min(90vh, 880px);
+  display: flex;
+  flex-direction: column;
+  background: #12141c;
+  color: #e8eaef;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+}
+
+.rainer-agent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.rainer-agent-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.rainer-agent-close {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: inherit;
+  border-radius: 8px;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+}
+
+.rainer-agent-close:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.rainer-agent-thread {
+  flex: 1;
+  overflow: auto;
+  padding: 0.75rem 1rem;
+  min-height: 200px;
+}
+
+.rainer-agent-hint {
+  margin: 0;
+  opacity: 0.75;
+  font-size: 0.9rem;
+}
+
+.rainer-agent-msg {
+  margin-bottom: 0.85rem;
+}
+
+.rainer-agent-msg-meta {
+  display: block;
+  font-size: 0.72rem;
+  opacity: 0.55;
+  margin-bottom: 0.25rem;
+}
+
+.rainer-agent-msg-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.rainer-agent-msg--user .rainer-agent-msg-body {
+  border-color: rgba(100, 180, 255, 0.25);
+}
+
+.rainer-agent-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.rainer-agent-compose textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 100px;
+  background: #0c0e14;
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  font: inherit;
+}
+
+.rainer-agent-send {
+  align-self: flex-end;
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem 1.25rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rainer-agent-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

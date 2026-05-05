@@ -1,0 +1,24 @@
+.canvas-workspace-shell {
+  flex: 1;
+  min-width: 0;
+  min-height: 200px;
+  overflow: auto;
+  background: #e8e8e8;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12px;
+}
+
+.canvas-workspace-shell--empty {
+  align-items: center;
+}
+
+.canvas-workspace-scale {
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+}
+
+.canvas-svg-main {
+  display: block;
+}

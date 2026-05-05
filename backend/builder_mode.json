@@ -1,0 +1,35 @@
+{
+  "builder_mode": {
+    "enabled": true,
+    "intent_triggers": [
+      "programmiere mir",
+      "bau mir",
+      "erstelle mir",
+      "mach mir eine app",
+      "mach mir ein",
+      "kannst du mir eine app",
+      "kannst du mir ein tool",
+      "ich brauche eine app",
+      "ich brauche ein tool",
+      "entwickle mir",
+      "schreib mir",
+      "erstelle ein dashboard",
+      "bau einen agent",
+      "bau mir einen"
+    ],
+    "capability_statement": "Ja, ich kann dir Architektur entwerfen, Projektstruktur scaffolden, Boilerplate-Code schreiben und in kleinen verifizierten Schritten mit dir bauen.",
+    "build_mode_response_template": {
+      "recognition": "Ich erkenne, dass du etwas bauen lassen willst.",
+      "capability": "Das kann ich: Ich kann Architektur planen, Code scaffolden, Tests schreiben und nach jeder Änderung selbst neustart/fehlerprüfung/test durchführen.",
+      "next_step": "Der nächste kleinste sinnvolle Schritt ist: [CONTEXT_SPECIFIC]",
+      "scope": "Ich arbeite nur in C:\\Users\\mielersch\\Desktop\\Rambo-Rainer und ändere nichts außerhalb des Aufgabenbereichs."
+    },
+    "dev_workflow": [
+      "1. Neu starten (Backend/Frontend sauber)",
+      "2. Fehler prüfen (Logs/Console)",
+      "3. Fehler beheben (kleinster Schritt)",
+      "4. Testen (relevant für die Änderung)",
+      "5. Erst weitermachen, wenn stabil"
+    ]
+  }
+}

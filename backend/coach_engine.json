@@ -1,0 +1,67 @@
+{
+  "coach_engine": {
+    "enabled": true,
+    "name": "Rambo Coach",
+    "intelligence": {
+      "context_awareness": true,
+      "step_prioritization": true,
+      "risk_assessment": true,
+      "learning_from_state": true
+    },
+    "step_selection_rules": [
+      {
+        "priority": 1,
+        "rule": "Wenn state.json leer: Scaffold anlegen",
+        "condition": "len(state.structure) == 0"
+      },
+      {
+        "priority": 2,
+        "rule": "Wenn Scaffold da, aber Dateien fehlen: Dateien generieren",
+        "condition": "state.scaffold_done && !state.files_created"
+      },
+      {
+        "priority": 3,
+        "rule": "Wenn Dateien da, aber Tests fehlen: Tests schreiben",
+        "condition": "state.files_created && !state.tests_written"
+      },
+      {
+        "priority": 4,
+        "rule": "Wenn Tests da: Dev-Workflow ausführen",
+        "condition": "state.tests_written && !state.dev_workflow_done"
+      },
+      {
+        "priority": 5,
+        "rule": "Wenn alles stabil: Nächste Feature vorschlagen",
+        "condition": "state.dev_workflow_done && state.stable"
+      }
+    ],
+    "risk_patterns": [
+      {
+        "risk": "Port conflict",
+        "severity": "high",
+        "mitigation": "Kill process on port before restart"
+      },
+      {
+        "risk": "Missing dependencies",
+        "severity": "medium",
+        "mitigation": "Run pip install -r requirements.txt"
+      },
+      {
+        "risk": "Database locks",
+        "severity": "medium",
+        "mitigation": "Rollback changes, restart clean"
+      },
+      {
+        "risk": "CORS issues",
+        "severity": "low",
+        "mitigation": "Check server.py CORS config"
+      }
+    ],
+    "response_templates": {
+      "next_step_found": "✅ Nächster Schritt erkannt: {step_name}. Risiken: {risks}. Aktion: {action}",
+      "no_clear_path": "⚠️ Mehrere mögliche Wege. Empfehlung: {recommendation}. Begründung: {reason}",
+      "risk_detected": "🚨 Risiko erkannt: {risk_name}. Schweregrad: {severity}. Maßnahme: {mitigation}",
+      "all_stable": "✅ Alle Systeme stabil. Nächste mögliche Feature: {feature}"
+    }
+  }
+}

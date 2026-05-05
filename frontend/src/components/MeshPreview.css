@@ -1,0 +1,84 @@
+.mesh-preview-card {
+  margin: 10px 0;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #f9fafb;
+}
+
+.mesh-preview-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  background: #111827;
+  color: #e5e7eb;
+  font-size: 12px;
+}
+
+.mesh-preview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: #374151;
+  border-bottom: 1px solid #e5e7eb;
+  background: #fff;
+}
+
+.mesh-preview-canvas-wrap {
+  position: relative;
+}
+
+.mesh-preview-canvas {
+  width: 100%;
+  min-height: 260px;
+  background: #111827;
+}
+
+.mesh-preview-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17, 24, 39, 0.7);
+  color: #f9fafb;
+  z-index: 2;
+  font-size: 13px;
+}
+
+.mesh-preview-error {
+  background: rgba(127, 29, 29, 0.75);
+}
+
+.mesh-preview-actions {
+  padding: 8px 10px;
+  background: #fff;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.mesh-preview-download {
+  font-size: 12px;
+  color: #1d4ed8;
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.mesh-preview-download:hover {
+  text-decoration: underline;
+}
+
+.mesh-preview-download:disabled {
+  color: #6b7280;
+  cursor: not-allowed;
+  text-decoration: none;
+}

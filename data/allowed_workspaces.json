@@ -1,0 +1,10 @@
+{
+  "allowed": [
+    {
+      "id": "default",
+      "path": "D:\\Rainer-Pro",
+      "trusted": false
+    }
+  ],
+  "active_id": "default"
+}

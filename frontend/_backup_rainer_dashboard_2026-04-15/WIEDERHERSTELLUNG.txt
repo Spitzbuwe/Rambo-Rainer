@@ -1,0 +1,6 @@
+Snapshot: 2026-04-15
+Wiederherstellen (Beispiel, PowerShell im Ordner ki-dashboard):
+  Remove-Item -Recurse -Force .\src
+  Copy-Item .\_backup_rainer_dashboard_2026-04-15\src .\src -Recurse
+  Copy-Item .\_backup_rainer_dashboard_2026-04-15\index.html, .\_backup_rainer_dashboard_2026-04-15\package.json, .\_backup_rainer_dashboard_2026-04-15\vite.config.js . -Force
+Danach ggf. npm install

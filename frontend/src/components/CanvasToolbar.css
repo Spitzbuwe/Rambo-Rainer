@@ -1,0 +1,78 @@
+.canvas-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #ddd;
+  background: #f0f4f8;
+  flex-shrink: 0;
+}
+
+.toolbar-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-zoom label {
+  font-size: 12px;
+  color: #444;
+  margin-right: 6px;
+}
+
+.toolbar-separator {
+  width: 1px;
+  height: 28px;
+  background: #ccc;
+  flex-shrink: 0;
+}
+
+.toolbar-btn {
+  padding: 8px 14px;
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.toolbar-btn:hover:not(:disabled) {
+  background: #e8eef5;
+  border-color: #667eea;
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.toolbar-btn-danger {
+  border-color: #e57373;
+  color: #c62828;
+}
+
+.toolbar-btn-export {
+  border-color: #11998e;
+  color: #0d6e63;
+}
+
+.toolbar-btn-muted {
+  opacity: 0.7;
+}
+
+.toolbar-slider {
+  width: 120px;
+  vertical-align: middle;
+}
+
+.canvas-toolbar-file {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}

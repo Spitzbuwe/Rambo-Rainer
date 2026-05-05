@@ -1,0 +1,111 @@
+{
+  "scaffold_templates": {
+    "web_app": {
+      "name": "Web App (React + Flask)",
+      "description": "Standard Single-Page App mit lokaler Datenbank",
+      "stack": ["Flask (Backend)", "React + Vite (Frontend)", "SQLite", "Docker Compose"],
+      "directories": {
+        "backend": {
+          "app.py": "main_flask_app",
+          "models.py": "database_models",
+          "routes.py": "api_endpoints",
+          "config.py": "configuration"
+        },
+        "frontend": {
+          "src/App.jsx": "main_component",
+          "src/pages/": "page_components",
+          "src/services/": "api_services"
+        }
+      },
+      "files_to_create": [
+        {
+          "path": "backend/models.py",
+          "template": "basic_model",
+          "description": "SQLite Models mit SQLAlchemy"
+        },
+        {
+          "path": "backend/routes.py",
+          "template": "basic_routes",
+          "description": "Flask API Endpoints"
+        },
+        {
+          "path": "frontend/src/pages/Dashboard.jsx",
+          "template": "basic_page",
+          "description": "Beispiel-Page Komponente"
+        }
+      ],
+      "docker_compose": true,
+      "first_steps": [
+        "1. Dateien in obiger Struktur anlegen",
+        "2. Models definieren",
+        "3. API Routes implementieren",
+        "4. Frontend Pages schreiben",
+        "5. Docker Compose testen"
+      ]
+    },
+    "tool": {
+      "name": "CLI Tool / Utility",
+      "description": "Kommandozeilen-Tool mit eigenständiger Logik",
+      "stack": ["Python", "Click/Argparse", "SQLite optional"],
+      "directories": {
+        "src": {
+          "main.py": "entry_point",
+          "logic.py": "core_functions",
+          "db.py": "database_layer"
+        }
+      },
+      "files_to_create": [
+        {
+          "path": "src/main.py",
+          "template": "cli_entry_point",
+          "description": "CLI Entry Point mit Argparse"
+        }
+      ],
+      "first_steps": [
+        "1. Entry Point definieren",
+        "2. Commands/Subcommands implementieren",
+        "3. Core Logic schreiben",
+        "4. Tests für jede Funktion"
+      ]
+    },
+    "dashboard": {
+      "name": "Dashboard / Monitoring UI",
+      "description": "Daten-Visualisierungs-App mit Live-Updates",
+      "stack": ["Flask", "React", "WebSocket", "Prometheus/Grafana optional"],
+      "directories": {
+        "backend": {},
+        "frontend": {
+          "src/components/Dashboard.jsx": "main_component",
+          "src/components/Charts.jsx": "chart_components",
+          "src/hooks/useWebSocket.js": "websocket_hook"
+        }
+      },
+      "files_to_create": [
+        {
+          "path": "frontend/src/hooks/useWebSocket.js",
+          "template": "websocket_hook",
+          "description": "React Hook für WebSocket Verbindung"
+        },
+        {
+          "path": "backend/websocket_handler.py",
+          "template": "flask_websocket",
+          "description": "Flask WebSocket Handler"
+        }
+      ],
+      "first_steps": [
+        "1. WebSocket Handler implementieren",
+        "2. Data-Fetching Hook schreiben",
+        "3. Dashboard Komponenten bauen",
+        "4. Live-Daten testen"
+      ]
+    }
+  },
+  "code_templates": {
+    "basic_model": "from flask_sqlalchemy import SQLAlchemy\nimport datetime\n\ndb = SQLAlchemy()\n\nclass Item(db.Model):\n    id = db.Column(db.Integer, primary_key=True)\n    name = db.Column(db.String(255), nullable=False)\n    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)\n",
+    "basic_routes": "from flask import Blueprint, jsonify, request\napi = Blueprint('api', __name__, url_prefix='/api')\n\n@api.route('/items', methods=['GET'])\ndef get_items():\n    return jsonify({'items': []}), 200\n",
+    "basic_page": "export default function Dashboard() {\n  return (\n    <div className='dashboard'>\n      <h1>Dashboard</h1>\n      <p>App läuft.</p>\n    </div>\n  );\n}\n",
+    "cli_entry_point": "import argparse\n\nparser = argparse.ArgumentParser(description='Your CLI Tool')\nparser.add_argument('--name', required=True, help='Name parameter')\nargs = parser.parse_args()\nprint(f'Hello, {args.name}!')\n",
+    "websocket_hook": "import { useEffect, useState } from 'react';\n\nexport function useWebSocket(url) {\n  const [data, setData] = useState(null);\n  \n  useEffect(() => {\n    const ws = new WebSocket(url);\n    ws.onmessage = (event) => setData(JSON.parse(event.data));\n    return () => ws.close();\n  }, [url]);\n  \n  return data;\n}\n",
+    "flask_websocket": "from flask_socketio import SocketIO, emit, join_room\nsocketio = SocketIO(app, cors_allowed_origins='*')\n\n@socketio.on('connect')\ndef handle_connect():\n    emit('response', {'data': 'Connected'})\n"
+  }
+}

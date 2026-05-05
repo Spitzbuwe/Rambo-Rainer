@@ -1,0 +1,53 @@
+{
+  "svg_templates": {
+    "business_card": {
+      "name": "Visitenkarte",
+      "width": 90,
+      "height": 50,
+      "unit": "mm",
+      "elements": [
+        {"type": "rect", "x": 0, "y": 0, "width": 90, "height": 50, "fill": "#FFFFFF", "stroke": "#000000"},
+        {"type": "text", "x": 5, "y": 10, "text": "[Name]", "font_size": 12, "font_family": "Arial"},
+        {"type": "text", "x": 5, "y": 20, "text": "[Title]", "font_size": 10, "font_family": "Arial"},
+        {"type": "text", "x": 5, "y": 40, "text": "[Email]", "font_size": 8, "font_family": "Arial"}
+      ]
+    },
+    "flyer": {
+      "name": "Flyer A5",
+      "width": 210,
+      "height": 148,
+      "unit": "mm",
+      "elements": [
+        {"type": "rect", "x": 0, "y": 0, "width": 210, "height": 148, "fill": "#F0F0F0", "stroke": "#333333"},
+        {"type": "text", "x": 10, "y": 20, "text": "[Title]", "font_size": 24, "font_family": "Arial", "font_weight": "bold"},
+        {"type": "text", "x": 10, "y": 60, "text": "[Content]", "font_size": 12, "font_family": "Arial"}
+      ]
+    },
+    "logo_background": {
+      "name": "Logo mit Hintergrund",
+      "width": 200,
+      "height": 200,
+      "unit": "px",
+      "elements": [
+        {"type": "circle", "cx": 100, "cy": 100, "r": 90, "fill": "#4472C4", "stroke": "#2E5090"},
+        {"type": "text", "x": 50, "y": 105, "text": "[LOGO]", "font_size": 20, "font_family": "Arial", "fill": "#FFFFFF", "font_weight": "bold"}
+      ]
+    }
+  },
+  "brand_colors": {
+    "default": {
+      "primary": "#4472C4",
+      "secondary": "#ED7D31",
+      "accent": "#A5A5A5",
+      "background": "#FFFFFF",
+      "text": "#000000"
+    },
+    "modern": {
+      "primary": "#1A1A1A",
+      "secondary": "#00D9FF",
+      "accent": "#FF006E",
+      "background": "#FFFFFF",
+      "text": "#1A1A1A"
+    }
+  }
+}

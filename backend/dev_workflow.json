@@ -1,0 +1,98 @@
+{
+  "dev_workflow": {
+    "enabled": true,
+    "phases": {
+      "restart": {
+        "name": "Backend/Frontend Neustart",
+        "description": "Stoppt und startet Backend/Frontend sauber neu (extern/supervisiert; nicht aus dem laufenden Prozess).",
+        "commands": [
+          {
+            "type": "backend",
+            "action": "restart",
+            "expected_port": "BACKEND_PORT",
+            "timeout_seconds": 10,
+            "health_check": "/api/health"
+          },
+          {
+            "type": "frontend",
+            "action": "restart",
+            "expected_port": 5173,
+            "timeout_seconds": 5,
+            "health_check": "http://localhost:5173"
+          }
+        ]
+      },
+      "check_errors": {
+        "name": "Fehlerprüfung",
+        "description": "Prüft Logs, HTTP-Status, API-Erreichbarkeit",
+        "checks": [
+          {
+            "name": "Backend Health",
+            "endpoint": "/api/health",
+            "method": "GET",
+            "expected_status": 200
+          },
+          {
+            "name": "Frontend Health",
+            "endpoint": "http://localhost:5173",
+            "method": "GET",
+            "expected_status": 200
+          },
+          {
+            "name": "API Connectivity",
+            "endpoint": "/api/builder-mode",
+            "method": "POST",
+            "payload": { "input": "test" },
+            "expected_status": 200
+          }
+        ]
+      },
+      "run_tests": {
+        "name": "Tests ausführen",
+        "description": "Pytest im backend/tests",
+        "commands": [
+          {
+            "type": "pytest",
+            "path": "tests/",
+            "args": ["-q", "--tb=line"],
+            "timeout_seconds": 180
+          }
+        ]
+      },
+      "fix_errors": {
+        "name": "Fehler beheben",
+        "description": "Konservative Hinweise / optional pip bei gesetztem DEV_WORKFLOW_ALLOW_PIP",
+        "rules": [
+          {
+            "error_pattern": "ModuleNotFoundError",
+            "action": "pip_install",
+            "package_from_requirements": true
+          },
+          {
+            "error_pattern": "port already in use",
+            "action": "kill_process",
+            "port": "BACKEND_PORT"
+          },
+          {
+            "error_pattern": "CORS",
+            "action": "check_cors_headers",
+            "file": "backend/server.py"
+          }
+        ]
+      }
+    },
+    "session_tracking": {
+      "enabled": true,
+      "store_in": "state.json",
+      "fields": [
+        "session_id",
+        "timestamp",
+        "phases_executed",
+        "errors_found",
+        "errors_fixed",
+        "tests_passed",
+        "status"
+      ]
+    }
+  }
+}

@@ -1,0 +1,357 @@
+:root {
+  --bg: #0b0e14;
+  --neon: #00f2ff;
+  --text: #ffffff;
+  --panel-bg: rgba(12, 18, 28, 0.92);
+  --border-dim: rgba(0, 242, 255, 0.35);
+}
+
+html,
+body,
+#root {
+  min-height: 100vh;
+  margin: 0;
+}
+
+body {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.rr-dashboard {
+  background-color: var(--bg);
+  min-height: 100vh;
+  color: var(--text);
+  display: grid;
+  grid-template-columns: 260px 1fr 280px;
+  gap: 1rem;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+.rr-sidebar-left,
+.rr-sidebar-right {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.rr-panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  box-shadow:
+    0 0 12px rgba(0, 242, 255, 0.12),
+    inset 0 0 20px rgba(0, 242, 255, 0.04);
+}
+
+.rr-panel h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--neon);
+}
+
+.rr-panel p {
+  margin: 0.25rem 0;
+  font-size: 0.85rem;
+}
+
+.rr-muted {
+  opacity: 0.75;
+  font-size: 0.8rem;
+}
+
+.rr-mode-switch {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.rr-mode-btn {
+  flex: 1;
+  padding: 0.45rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-dim);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.rr-mode-btn.active {
+  border-color: var(--neon);
+  box-shadow: 0 0 10px rgba(0, 242, 255, 0.35);
+  color: var(--neon);
+}
+
+.rr-weather-btn {
+  margin-top: 0.6rem;
+  width: 100%;
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--neon);
+  background: transparent;
+  color: var(--neon);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.rr-weather-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rr-center {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.rr-center-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.rr-main-title {
+  margin: 0;
+  font-size: 1.15rem;
+  letter-spacing: 0.12em;
+  color: var(--neon);
+  text-shadow: 0 0 16px rgba(0, 242, 255, 0.45);
+}
+
+.rr-satellite-feed img,
+.rr-satellite-image {
+  width: 100%;
+  max-height: 200px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border-dim);
+}
+
+.rr-chat-head {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.35rem 0;
+}
+
+.rr-chat-title {
+  font-weight: 700;
+  color: var(--neon);
+}
+
+.rr-upload-badge {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(0, 242, 255, 0.15);
+  border: 1px solid var(--border-dim);
+}
+
+.rr-upload-badge.ready {
+  color: #7dff9a;
+  border-color: rgba(125, 255, 154, 0.5);
+}
+
+.rr-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.rr-chat {
+  flex: 1;
+  min-height: 220px;
+  max-height: 42vh;
+  overflow-y: auto;
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.rr-msg {
+  margin-bottom: 0.85rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 6px;
+  border-left: 3px solid var(--border-dim);
+}
+
+.rr-msg.user {
+  background: rgba(0, 242, 255, 0.06);
+  border-left-color: var(--neon);
+}
+
+.rr-msg.ai {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.rr-msg-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  margin-bottom: 0.35rem;
+  opacity: 0.9;
+}
+
+.rr-msg p {
+  margin: 0.25rem 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.9rem;
+}
+
+.rr-loading {
+  padding: 0.5rem;
+  color: var(--neon);
+  font-size: 0.85rem;
+  animation: rr-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes rr-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.rr-input-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.rr-file-input {
+  display: none;
+}
+
+.rr-upload-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 6px;
+  border: 1px solid var(--neon);
+  color: var(--neon);
+  cursor: pointer;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.rr-input-row input[type="text"],
+.rr-input-row input:not([type="file"]) {
+  flex: 1;
+  min-width: 0;
+  padding: 0.55rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-dim);
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--text);
+}
+
+.rr-input-row button {
+  padding: 0.55rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--neon);
+  background: rgba(0, 242, 255, 0.12);
+  color: var(--neon);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.rr-space-btn {
+  white-space: nowrap;
+}
+
+.rr-badge-online {
+  color: #7dff9a;
+}
+
+.rr-processing {
+  color: var(--neon);
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+}
+
+.rr-sub {
+  margin-top: 0.5rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: var(--neon);
+  opacity: 0.8;
+}
+
+.rr-code-terminal {
+  max-height: 140px;
+  overflow-y: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.rr-code-line {
+  margin: 0.15rem 0;
+  opacity: 0.9;
+}
+
+.rr-image-fallback {
+  margin-top: 0.5rem;
+}
+
+.rr-image-fallback button {
+  margin-top: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-dim);
+  background: transparent;
+  color: var(--neon);
+  cursor: pointer;
+}
+
+.image-wrapper {
+  margin-top: 0.5rem;
+}
+
+.cyber-image {
+  max-width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--border-dim);
+}
+
+@media (max-width: 1100px) {
+  .rr-dashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .rr-sidebar-left,
+  .rr-sidebar-right {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .rr-sidebar-left .rr-panel,
+  .rr-sidebar-right .rr-panel {
+    flex: 1 1 200px;
+  }
+}
