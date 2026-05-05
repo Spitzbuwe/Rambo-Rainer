@@ -10,7 +10,7 @@ export default function TopNavigation({
   onBuilderMode,
   onGeneratorUI,
   onDesignStudio,
-  onRainerAgent,
+  onRainerAgent = () => {},
   activeSection = null,
   showBuilderMode = false,
 }) {
