@@ -59,10 +59,13 @@ function historyLabel(entry) {
   return entry.event || entry.action || '—';
 }
 
+const TT_HEALTH_CARD =
+  'Rambo-Health: GET …/api/health (mit Dashboard-Basis-URL). Online nur wenn JSON.status „backend_ok“. Offline = Flask nicht erreichbar, falscher Port (Standard 5002) oder CORS bei direkt geöffneter index.html.';
+
 export function HealthCard({ online, detail }) {
   const ok = Boolean(online);
   return (
-    <section className="rambo-mgmt-card" aria-label="Health">
+    <section className="rambo-mgmt-card" aria-label="Health" title={TT_HEALTH_CARD}>
       <h3 className="rambo-mgmt-card__title">Health</h3>
       <div className="rambo-mgmt-card__row">
         <span className={`rambo-mgmt-card__icon ${ok ? 'rambo-mgmt-card__icon--ok' : 'rambo-mgmt-card__icon--bad'}`} aria-hidden>

@@ -23,6 +23,11 @@ const RAMBO_ADMIN_TOKEN = (import.meta.env.VITE_RAMBO_ADMIN_TOKEN || "").trim();
 /** Bis zur ersten gültigen GET-/api/status-Antwort — bewusst kein Erfolgslabel. */
 const BACKEND_STATUS_PENDING = "Prüfe Verbindung...";
 
+const TT_HEAD_STATUS =
+  "Quelle: GET /api/status (alle 10 s). Grün bei backend_ok oder status ok/running/healthy. „Nicht erreichbar“ = Netzwerk/Proxy/Backend nicht erreichbar — nicht Ollama.";
+const TT_PANEL_BACKEND =
+  "Backend-Zeile = GET /api/status (wie Kopfzeile). „Verbunden“ = Poll erfolgreich. Verwechseln mit Rambo Health (/api/health) oder Ollama (Chat/Canvas).";
+
 function apiUrl(pathOrQuery) {
   const p = pathOrQuery.startsWith("/") ? pathOrQuery : `/${pathOrQuery}`;
   return `${API_BASE}${p}`;
@@ -1351,6 +1356,7 @@ function App() {
             className={`dash-head-status${
               isBackendReachableLabel(status.backend_status) ? " dash-head-status--ok" : ""
             }`}
+            title={TT_HEAD_STATUS}
           >
             {pageStatusLabel}
           </span>
@@ -1406,7 +1412,9 @@ function App() {
           <h3 className="dash-panel__title">Status</h3>
           <div className="dash-kv">
             <span className="dash-kv__k">Backend</span>
-            <span className="dash-kv__v">{status.backend_status}</span>
+            <span className="dash-kv__v" title={TT_PANEL_BACKEND}>
+              {status.backend_status}
+            </span>
           </div>
           <div className="dash-kv">
             <span className="dash-kv__k">System</span>
