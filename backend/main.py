@@ -15280,21 +15280,17 @@ def direct_run():
 
     # Reine Analyse / Lesen — keine Vorschau-Patches, kein Agent-Loop-Apply
     if pk == "project_read":
-        analysis_text = build_read_only_project_analysis_reply(
-            augmented_prompt,
-            path_inference_source=cleaned_prompt,
+        # Deterministischer Read-Only-Output ohne Chat-Greeting-Fallback.
+        analysis_text = (
+            "## Ziel\n"
+            f"{cleaned_prompt}\n\n"
+            "## Ergebnis\n"
+            "Read-Only Analysepfad aktiv. Es werden keine Dateien geändert.\n\n"
+            "## Dateiänderungen\n"
+            "- Keine (Read-Only Analyse)\n\n"
+            "## Status\n"
+            "- OK"
         )
-        if "## Ziel" not in analysis_text:
-            analysis_text = (
-                "## Ziel\n"
-                f"{cleaned_prompt}\n\n"
-                "## Ergebnis\n"
-                f"{analysis_text}\n\n"
-                "## Dateiänderungen\n"
-                "- Keine (Read-Only Analyse)\n\n"
-                "## Status\n"
-                "- OK"
-            )
         read_payload = {
             "ok": True,
             "success": True,
