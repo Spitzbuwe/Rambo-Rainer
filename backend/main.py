@@ -13764,6 +13764,57 @@ def _sync_robot_desktop_icons(base: Path, task: str) -> list[str]:
     return out
 
 
+def _merge_post_build_agent_digest(result: dict, task: str, workspace: Path) -> dict:
+    """
+    Optional nach Robot-Desktop-Build: AgentLoop.run_analysis auf dem Zielordner (nur Lesen).
+    Deaktivieren: AGENT_SKIP_POST_BUILD_ANALYSIS=1
+    """
+    if not isinstance(result, dict):
+        return result
+    if str(os.environ.get("AGENT_SKIP_POST_BUILD_ANALYSIS") or "").strip().lower() in ("1", "true", "yes"):
+        return result
+    if not AGENT_LOOP_AVAILABLE or AgentLoop is None:
+        return result
+    try:
+        root = Path(workspace).resolve()
+        if not root.is_dir():
+            return result
+        agent_o = AgentLoop(root)
+        digest_task = (
+            f"Nutzerauftrag (Auszug): {task[:500]}\n\n"
+            "Analysiere nur die vorhandene Struktur und Dateiinhalte. "
+            "Antworte mit 3–7 kurzen Stichpunkten: was liegt unter electron/, was unter rambo_ui/, "
+            "wofür build_desktop.py. Keine Änderungsvorschläge, kein neuer Code."
+        )
+        ar = agent_o.run_analysis(digest_task)
+        if not isinstance(ar, dict) or not ar.get("ok"):
+            return result
+        digest = str(ar.get("analysis") or "").strip()
+        if not digest:
+            return result
+        out = dict(result)
+        suffix = "\n\n**Projekt-Kurzcheck (AgentLoop)**\n\n" + digest
+        out["post_build_analysis"] = digest
+        out["agent_loop_after_build"] = True
+        base = str(
+            out.get("formatted_response") or out.get("message") or out.get("technical_message") or ""
+        ).strip()
+        new_body = base + suffix
+        out["formatted_response"] = new_body
+        if "message" in out:
+            out["message"] = new_body
+        if "technical_message" in out:
+            out["technical_message"] = new_body
+        we = out.get("workstream_events")
+        if isinstance(we, list):
+            out["workstream_events"] = list(we) + [
+                _ws_event("analyze", "info", "AgentLoop", "Kurzcheck nach Build", status="done"),
+            ]
+        return out
+    except Exception:
+        return result
+
+
 def execute_project_build(task, run_id, scope="project", mode="safe"):
     """
     Multi-File Projekt-Build Handler für Electron/React/Vite Apps.
@@ -13921,7 +13972,7 @@ def execute_project_build(task, run_id, scope="project", mode="safe"):
     except Exception:
         pass
 
-    return {
+    pb_result = {
         "run_id": run_id,
         "scope": scope,
         "mode": mode,
@@ -13959,6 +14010,9 @@ def execute_project_build(task, run_id, scope="project", mode="safe"):
             "execution_route": "project_build",
         },
     }
+    if created_count > 0 and build_status == "success":
+        pb_result = _merge_post_build_agent_digest(pb_result, task, base_path)
+    return pb_result
 
 
 # Template-Inhalte für Electron/React Projekt
@@ -15134,7 +15188,7 @@ def execute_electron_react_build(task, run_id):
 
     add_event("done", "info" if build_status == "success" else "error", "Build abgeschlossen", technical_message, status="done")
 
-    return {
+    er_result = {
         "run_id": run_id,
         "status": build_status,
         "ok": build_status == "success",
@@ -15162,6 +15216,9 @@ def execute_electron_react_build(task, run_id):
         "log_file": str(log_file) if build_logs else None,
         "formatted_response": technical_message,
     }
+    if created_count > 0 and build_status == "success":
+        er_result = _merge_post_build_agent_digest(er_result, task, target_root)
+    return er_result
 
 
 

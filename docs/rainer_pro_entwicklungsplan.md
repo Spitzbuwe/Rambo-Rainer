@@ -26,6 +26,7 @@
 | **Phase 1.4 Prompt-Guard im Loop** | Blockiert verdächtigen ERSETZE/<<NEU>>-Inhalt vor Write |
 | **MAX_REPAIR_ATTEMPTS** | Agent-Loop-Reparatur: 2 Versuche |
 | **Phase 1.1 (Teil)** | `POST /api/intelligent-run` → intern `direct_run()` (klassifiziert + Agent/Chat wie direct-run); Ausnahme `implementation: true` = `execute_intelligent` |
+| **Phase 4 (Teil)** | E2E-Gate + optional `AgentLoop.run_analysis` nach erfolgreichem `project_build` / `electron_react_build` (`AGENT_SKIP_POST_BUILD_ANALYSIS=1` zum Abschalten) |
 
 ### Noch offen (Roadmap)
 
@@ -83,7 +84,7 @@ Ziel: Jeder Prompt landet zuverlässig beim richtigen Handler.
 
 ## PHASE 4 — STABILITÄT *(DAUERHAFT)*
 
-- E2E-Tests mit echten Prompts (`tests/test_e2e_real_prompts.py`).
+- E2E-Gate: `backend/tests/test_e2e_real_prompts.py` (in `check.ps1`; realistische Prompts, LLM/Agent gemockt).
 - Smoke nach Start, Rollback optional über Git.
 
 ---
