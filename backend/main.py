@@ -7604,7 +7604,7 @@ def execute_direct_confirmation(pending):
         ]
         response_payload = {
             **success_payload(
-                "Analyse abgeschlossen! ✓",
+                "Änderung angewendet! ✓",
                 technical_message=msg_local,
                 changed_files=[relative_path],
                 location="rambo_builder_local/",
@@ -7789,7 +7789,7 @@ def execute_direct_confirmation(pending):
     analysis_detail = build_written_result_detail(resolved, cleaned)
     response_payload = {
         **success_payload(
-            "Analyse abgeschlossen! ✓",
+            "Änderung angewendet! ✓",
             technical_message=f"Projekt-Direktmodus erfolgreich abgeschlossen: {cleaned}",
             changed_files=[cleaned],
             location="Rambo-Rainer/",
