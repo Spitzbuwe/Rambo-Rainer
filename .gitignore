@@ -9,3 +9,4 @@ logs/
 .pytest_cache/
 .venv/
 venv/
+check-report.txt

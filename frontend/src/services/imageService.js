@@ -21,6 +21,22 @@ async function readJsonSafe(response) {
 }
 
 export const imageService = {
+  async generate(prompt, size = "1024x1024") {
+    const response = await fetch(apiUrl("/api/image/generate"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Rambo-Admin": ADMIN_TOKEN,
+      },
+      body: JSON.stringify({ prompt, size }),
+    });
+    const data = await readJsonSafe(response);
+    if (!response.ok || data.ok === false) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    return data;
+  },
+
   async processImage(filename, action) {
     const response = await fetch(apiUrl("/api/image/process"), {
       method: "POST",

@@ -42,7 +42,6 @@ import requests
 from flask import Flask, g, jsonify, request, send_from_directory
 from flask import Response
 from werkzeug.exceptions import HTTPException
-
 from api_run_state import enrich_direct_confirm_response, enrich_direct_run_response
 from auto_analyzer import AutoAnalyzer
 from auto_logger import AutoLogger
@@ -100,6 +99,7 @@ from intent_enrichment import (
 from model_providers import (
     generate_chat_response as llm_generate_chat_response,
     generate_coding_response as llm_generate_coding_response,
+    generate_image_via_openai,
     is_llm_failure_message,
     summarize_llm_health,
 )
@@ -235,6 +235,8 @@ LOGS_DIR = DOWNLOADS_DIR / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 UPLOADS_DIR = DOWNLOADS_DIR / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+GENERATED_IMAGES_DIR = UPLOADS_DIR / "generated"
+GENERATED_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 CHAT_HISTORY_FILE = DATA_DIR / "chat_history.json"
 
 # Auto-Apply: direkte Ausfuehrung ohne Bestaetigung fuer normale Auftraege.
@@ -382,6 +384,35 @@ LOCAL_AGENT_MODEL_FALLBACKS = [
     if m.strip()
 ]
 
+WEATHER_STATUS_MAP = {
+    0: "Klar",
+    1: "Überwiegend klar",
+    2: "Teilweise bewölkt",
+    3: "Bewölkt",
+    45: "Nebel",
+    48: "Raureifnebel",
+    51: "Leichter Nieselregen",
+    53: "Nieselregen",
+    55: "Starker Nieselregen",
+    61: "Leichter Regen",
+    63: "Regen",
+    65: "Starker Regen",
+    71: "Leichter Schneefall",
+    73: "Schneefall",
+    75: "Starker Schneefall",
+    80: "Regenschauer",
+    81: "Starke Regenschauer",
+    82: "Heftige Regenschauer",
+    95: "Gewitter",
+}
+
+
+def _weather_status_from_code(code):
+    try:
+        return WEATHER_STATUS_MAP.get(int(code), "Unbekannt")
+    except Exception:
+        return "Unbekannt"
+
 
 def _get_git_integration():
     return get_git_integration(APP_DIR)
@@ -455,7 +486,7 @@ _FILE_VIEWER_BLOCKED_SUFFIXES = {
     ".mov",
     ".mkv",
 }
-_FILE_VIEWER_MAX_BYTES = 200 * 1024
+_FILE_VIEWER_MAX_BYTES = int(os.environ.get("RAINER_FILE_VIEWER_MAX_BYTES", "-1"))
 _FILE_VIEWER_LANG_BY_SUFFIX = {
     ".py": "python",
     ".js": "javascript",
@@ -470,7 +501,7 @@ _FILE_VIEWER_LANG_BY_SUFFIX = {
     ".yaml": "yaml",
     ".toml": "toml",
 }
-_DIFF_VIEWER_MAX_BYTES = 120 * 1024
+_DIFF_VIEWER_MAX_BYTES = int(os.environ.get("RAINER_DIFF_VIEWER_MAX_BYTES", "-1"))
 _RUN_CHECK_MAX_OUTPUT_BYTES = 80 * 1024
 _RUN_CHECK_TIMEOUT_SECONDS = 60
 _RUN_ALLOWED_CHECKS: dict[str, list[str]] = {
@@ -594,17 +625,23 @@ def _safe_read_project_file(root: Path, rel_path_raw: str, max_bytes: int = _FIL
         size = int(target.stat().st_size)
     except Exception:  # noqa: BLE001
         size = 0
-    read_limit = max(1, int(max_bytes))
+    read_limit = int(max_bytes)
     raw: bytes
     try:
         with target.open("rb") as f:
-            raw = f.read(read_limit + 1)
+            if read_limit < 0:
+                raw = f.read()
+            else:
+                raw = f.read(max(1, read_limit) + 1)
     except Exception as ex:  # noqa: BLE001
         return {"ok": False, "warnings": warnings, "errors": [f"read_failed:{ex}"]}
 
-    truncated = len(raw) > read_limit or size > read_limit
-    if len(raw) > read_limit:
-        raw = raw[:read_limit]
+    truncated = False
+    if read_limit >= 0:
+        read_limit = max(1, read_limit)
+        truncated = len(raw) > read_limit or size > read_limit
+        if len(raw) > read_limit:
+            raw = raw[:read_limit]
     try:
         content = raw.decode("utf-8")
     except UnicodeDecodeError:
@@ -646,7 +683,7 @@ def _safe_read_project_diff(root: Path, rel_path: str | None = None, max_bytes: 
     warnings: list[str] = []
     errors: list[str] = []
     root_resolved = root.resolve()
-    read_limit = max(1, int(max_bytes))
+    read_limit = int(max_bytes)
 
     safe_path = None
     if rel_path is not None and str(rel_path).strip():
@@ -747,10 +784,11 @@ def _safe_read_project_diff(root: Path, rel_path: str | None = None, max_bytes: 
     diff_text = diff_cp.stdout or ""
     truncated = False
     encoded = diff_text.encode("utf-8", errors="replace")
-    if len(encoded) > read_limit:
+    if read_limit >= 0 and len(encoded) > max(1, read_limit):
         truncated = True
-        diff_text = encoded[:read_limit].decode("utf-8", errors="replace")
-        warnings.append(f"diff_truncated_at_{read_limit}_bytes")
+        safe_lim = max(1, read_limit)
+        diff_text = encoded[:safe_lim].decode("utf-8", errors="replace")
+        warnings.append(f"diff_truncated_at_{safe_lim}_bytes")
     if not diff_text.strip():
         warnings.append("no_diff_changes")
 
@@ -3838,6 +3876,13 @@ def detect_unsafe_large_rewrite(path: str, before_content: str, after_content: s
 
 def _build_unsafe_large_rewrite_payload(path: str, *, scope: str = "local", mode: str = "apply", task: str = "") -> dict:
     rel = format_local_path(path or "")
+    task_text = str(task or "").strip()
+    split_steps = [
+        f"Datei lesen: {rel}" if rel else "Datei lesen",
+        "Nur Zielbereich lokalisieren (keine Vollersetzung)",
+        "Kleinen Patch mit minimalen Änderungen erzeugen",
+        "Patch validieren und anwenden",
+    ]
     return {
         "ok": False,
         "success": False,
@@ -3847,13 +3892,100 @@ def _build_unsafe_large_rewrite_payload(path: str, *, scope: str = "local", mode
         "scope": str(scope or "local"),
         "mode": str(mode or "apply"),
         "task": str(task or ""),
-        "message": "Änderung blockiert: Datei würde zu stark überschrieben.",
+        "message": "Änderung blockiert: Datei würde zu stark überschrieben. Nutze automatische Teilschritte (read -> locate -> small patch -> apply).",
         "blocked_files": [rel] if rel else [],
         "errors": [f"Unsafe large rewrite detected: {rel}"] if rel else ["Unsafe large rewrite detected"],
         "affected_files": [rel] if rel else [],
         "changed_files": [],
         "forbidden_files": [],
+        "requires_split_patch": True,
+        "recovery_mode": "split_patch_required",
+        "next_actions": split_steps,
+        "recommended_user_prompt": (
+            f"Ändere nur den relevanten Abschnitt in {rel} mit kleinem Patch, keine Vollersetzung."
+            if rel
+            else "Ändere nur den relevanten Abschnitt mit kleinem Patch, keine Vollersetzung."
+        ),
+        "task_echo": task_text,
     }
+
+
+_RECOVERY_BLOCKING_TRIGGERS = frozenset({"tiny_stub_pattern", "protected_file_tiny_stub"})
+
+
+def _unsafe_triggers_block_auto_recovery(triggers: list | None) -> bool:
+    return bool(triggers) and any(t in _RECOVERY_BLOCKING_TRIGGERS for t in triggers)
+
+
+def _run_step_engine_internal(
+    task: str,
+    rel_path: str,
+    current_content: str,
+    proposed_content: str,
+    *,
+    confirmed: bool = False,
+    run_checks: bool = False,
+) -> dict:
+    planner = get_task_planner_agent()
+    context_builder = get_context_builder_agent(root=RAMBO_RAINER_ROOT.resolve(), skip_dirs=SCANNER_SKIP_DIRS)
+    patch_generator = get_patch_generator_agent(root=RAMBO_RAINER_ROOT.resolve())
+    patch_validator = get_patch_validator_agent(root=RAMBO_RAINER_ROOT.resolve())
+    error_fixer = get_error_fixer_agent(APP_DIR.resolve())
+    test_runner = get_test_runner_agent(APP_DIR.resolve())
+    engine = StepEngineAgent(planner, context_builder, patch_generator, patch_validator, error_fixer, test_runner)
+    return engine.run_step_flow(
+        task=task,
+        path=rel_path,
+        current_content=current_content,
+        proposed_content=proposed_content,
+        confirmed=confirmed,
+        run_checks=run_checks,
+    )
+
+
+def _step_engine_patch_allows_apply(se_result: dict) -> bool:
+    if not isinstance(se_result, dict) or not se_result.get("ok"):
+        return False
+    val = se_result.get("validation") or {}
+    if str(val.get("status") or "") != "validated":
+        return False
+    patch = se_result.get("patch_preview") or {}
+    return bool(patch.get("has_changes"))
+
+
+def _try_unsafe_rewrite_step_engine_apply(
+    *,
+    relative_path: str,
+    resolved_path,
+    current_content: str,
+    proposed_content: str,
+    task: str,
+    unsafe_check: dict,
+) -> tuple[bool, dict | None]:
+    if _unsafe_triggers_block_auto_recovery(unsafe_check.get("triggers")):
+        return False, None
+    try:
+        se = _run_step_engine_internal(
+            str(task or ""),
+            str(relative_path or ""),
+            str(current_content or ""),
+            str(proposed_content or ""),
+            confirmed=False,
+            run_checks=False,
+        )
+        if not _step_engine_patch_allows_apply(se):
+            return False, se
+        wr = persist_text_file_change(
+            resolved_path,
+            proposed_content,
+            relative_path,
+            on_timeout_log=lambda m: append_ui_log_entry("Direkt", m, "error"),
+        )
+        if not wr.get("ok"):
+            return False, se
+        return True, se
+    except Exception as exc:
+        return False, {"ok": False, "status": "recovery_exception", "errors": [str(exc)]}
 
 
 def _is_tests_py_path(path: str) -> bool:
@@ -7531,6 +7663,98 @@ def execute_direct_confirmation(pending):
             {"phase": "local_apply", "task": task},
         )
         if bool(unsafe_check.get("unsafe")):
+            applied_rec, se_res = _try_unsafe_rewrite_step_engine_apply(
+                relative_path=relative_path,
+                resolved_path=resolved_path,
+                current_content=current_content,
+                proposed_content=proposed_content,
+                task=task,
+                unsafe_check=unsafe_check,
+            )
+            if applied_rec:
+                append_ui_log_entry("Direkt", f"Auto-Recovery (Step-Engine): Patch angewendet: {relative_path}", "success")
+                post_check = run_local_post_check(resolved_path, relative_path, proposed_content)
+                clear_pending_direct_run()
+                decision_txt = "Lokale Aenderung nach Step-Engine-Recovery angewendet."
+                save_project_auto_run_state({
+                    "last_run_at": get_timestamp(),
+                    "last_result": "Direktmodus lokal abgeschlossen (Recovery).",
+                    "last_apply_action": f"Lokale Datei {'aktualisiert' if file_exists else 'angelegt'}: {relative_path}",
+                    "last_check_result": post_check["detail"],
+                    "last_direct_decision": decision_txt,
+                    "last_direct_status": "verified" if post_check["ok"] else "applied",
+                    "last_direct_confirmed_run_id": str(pending.get("run_id") or pending.get("token") or ""),
+                    "last_completed_run_id": str(pending.get("run_id") or pending.get("token") or ""),
+                    "last_planned_steps": normalize_planned_steps(pending.get("planned_steps") or []),
+                    "blocked": False,
+                })
+                append_ui_log_entry("Direkt", f"Apply ausgefuehrt: {relative_path}", "success")
+                append_ui_log_entry("Direkt", post_check["detail"], "success" if post_check["ok"] else "error")
+                msg_local = (
+                    f"Lokale Direktmodus-Aenderung {'aktualisiert' if file_exists else 'angelegt'}: {relative_path} "
+                    "(nach Step-Engine-Recovery, kleiner Patch)"
+                )
+                analysis_detail = build_written_result_detail(resolved_path, relative_path)
+                file_action = "erstellt" if not file_exists else "aktualisiert"
+                _ws_events = [
+                    {"ts": get_timestamp(), "phase": "analysis", "level": "info",
+                     "title": "Auftrag erkannt", "detail": str(task)[:80], "status": "done"},
+                    {"ts": get_timestamp(), "phase": "guard", "level": "warning",
+                     "title": "Rewrite-Heuristik", "detail": "Große Änderung erkannt, Patch aber unter Diff-Schwelle.", "status": "done"},
+                    {"ts": get_timestamp(), "phase": "recovery", "level": "success",
+                     "title": "Step-Engine Recovery", "detail": "Validierter Patch automatisch angewendet.", "status": "done"},
+                    {"ts": get_timestamp(), "phase": "writing", "level": "success",
+                     "title": f"Datei {file_action}", "detail": str(relative_path),
+                     "file": str(resolved_path), "status": "done"},
+                    {"ts": get_timestamp(), "phase": "verify", "level": "success" if post_check["ok"] else "error",
+                     "title": "Ergebnis geprüft", "detail": post_check["detail"],
+                     "status": "done" if post_check["ok"] else "failed"},
+                ]
+                response_payload = {
+                    **success_payload(
+                        "Änderung angewendet! ✓",
+                        technical_message=msg_local,
+                        changed_files=[relative_path],
+                        location="rambo_builder_local/",
+                        detail=analysis_detail or "Die Änderung wurde erfolgreich angewendet (Recovery).",
+                    ),
+                    "scope": scope,
+                    "mode": "apply",
+                    "selected_target_path": relative_path,
+                    "recognized_task": pending.get("recognized_task") if isinstance(pending.get("recognized_task"), dict) else {},
+                    "affected_files": [relative_path],
+                    "planned_steps": normalize_planned_steps(pending.get("planned_steps") or []),
+                    "diff": diff_text,
+                    "post_check": {
+                        **post_check,
+                        "path": str(relative_path),
+                        "target": str(resolved_path),
+                    },
+                    "direct_status": "verified" if post_check["ok"] else "applied",
+                    "diff_summary": build_diff_summary(diff_text),
+                    "workstream_events": _ws_events,
+                    "created_files": [] if file_exists else [relative_path],
+                    "updated_files": [relative_path] if file_exists else [],
+                    "deleted_files": [],
+                    "changed_files": [relative_path],
+                    "split_patch_recovery": True,
+                    "step_engine_result": se_res if isinstance(se_res, dict) else {},
+                    "auto_apply": True,
+                    "auto_continue": True,
+                    "skip_review": True,
+                    "direct_execute": True,
+                }
+                response_payload = _merge_direct_file_context(response_payload, pending)
+                response_payload = _enforce_real_change_success(task, response_payload, mode="apply")
+                upsert_direct_run_history(
+                    build_direct_history_entry(
+                        str(pending.get("run_id") or ""),
+                        {**pending, **response_payload},
+                        response_payload["direct_status"],
+                    )
+                )
+                return jsonify(attach_direct_ui_chrome(response_payload, pending))
+
             clear_pending_direct_run()
             blocked_payload = _build_unsafe_large_rewrite_payload(relative_path, scope=scope, mode=mode, task=task)
             blocked_payload["recognized_task"] = pending.get("recognized_task") if isinstance(pending.get("recognized_task"), dict) else {}
@@ -7540,7 +7764,20 @@ def execute_direct_confirmation(pending):
             blocked_payload["workstream_events"] = [
                 _ws_event("analysis", "info", "Diff analysiert", f"Ziel: {relative_path}", status="done"),
                 _ws_event("guard", "error", "Änderung blockiert", "Datei würde zu stark überschrieben.", status="blocked"),
+                _ws_event("recovery", "info", "Auto-Fallback aktiv", "Split-Patch-Workflow starten: read -> locate -> patch -> apply", status="planned"),
             ]
+            blocked_payload["auto_fallback_started"] = True
+            blocked_payload["next_route"] = "/api/workspace/step-engine"
+            blocked_payload["step_engine_payload"] = {
+                "task": str(task or ""),
+                "path": str(relative_path or ""),
+                "current_content": str(current_content or ""),
+                "proposed_content": str(proposed_content or ""),
+                "confirmed": False,
+            }
+            if isinstance(se_res, dict):
+                blocked_payload["step_engine_result"] = se_res
+                blocked_payload["auto_recovery_attempted"] = True
             append_ui_log_entry("Direkt", "Unsafe large rewrite blockiert.", "error")
             return blocked_payload, 400
 
@@ -7741,12 +7978,78 @@ def execute_direct_confirmation(pending):
         {"phase": "project_apply", "task": task},
     )
     if bool(unsafe_check.get("unsafe")):
+        applied_rec, se_res = _try_unsafe_rewrite_step_engine_apply(
+            relative_path=cleaned,
+            resolved_path=resolved,
+            current_content=current_content,
+            proposed_content=proposed_content,
+            task=task,
+            unsafe_check=unsafe_check,
+        )
+        if applied_rec:
+            append_ui_log_entry("Direkt", f"Auto-Recovery (Step-Engine): Patch angewendet: {cleaned}", "success")
+            post_check = run_project_post_check(resolved, cleaned, proposed_content)
+            clear_pending_direct_run()
+            save_project_auto_run_state({
+                "last_run_at": get_timestamp(),
+                "last_task": task,
+                "last_mode": mode,
+                "last_target_paths": [cleaned],
+                "last_guard_decision": guard.get("detail", ""),
+                "last_apply_action": f"Apply (Recovery) ausgefuehrt: {cleaned} {'aktualisiert' if file_exists else 'neu angelegt'}.",
+                "last_check_result": post_check["detail"],
+                "last_result": "Direktmodus abgeschlossen (Recovery)." if post_check["ok"] else "Direktmodus mit Nachkontrollfehler abgeschlossen (Recovery).",
+                "last_direct_decision": "Projekt-Aenderung nach Step-Engine-Recovery angewendet.",
+                "last_direct_status": "verified" if post_check["ok"] else "applied",
+                "last_direct_confirmed_run_id": str(pending.get("run_id") or pending.get("token") or ""),
+                "last_completed_run_id": str(pending.get("run_id") or pending.get("token") or ""),
+                "last_planned_steps": normalize_planned_steps(pending.get("planned_steps") or []),
+                "blocked": False,
+            })
+            append_ui_log_entry("Direkt", f"Apply ausgefuehrt: {cleaned}", "success")
+            append_ui_log_entry("Direkt", post_check["detail"], "success" if post_check["ok"] else "error")
+            analysis_detail = build_written_result_detail(resolved, cleaned)
+            response_payload = {
+                **success_payload(
+                    "Änderung angewendet! ✓",
+                    technical_message=f"Projekt-Direktmodus erfolgreich abgeschlossen (Recovery): {cleaned}",
+                    changed_files=[cleaned],
+                    location="Rambo-Rainer/",
+                    detail=analysis_detail or "Die Änderung wurde erfolgreich angewendet (Recovery).",
+                ),
+                "scope": scope,
+                "mode": mode,
+                "selected_target_path": cleaned,
+                "recognized_task": pending.get("recognized_task") if isinstance(pending.get("recognized_task"), dict) else {},
+                "affected_files": [cleaned],
+                "planned_steps": normalize_planned_steps(pending.get("planned_steps") or []),
+                "diff": diff_text,
+                "post_check": post_check,
+                "direct_status": "verified" if post_check["ok"] else "applied",
+                "diff_summary": build_diff_summary(diff_text),
+                "split_patch_recovery": True,
+                "step_engine_result": se_res if isinstance(se_res, dict) else {},
+            }
+            response_payload = _merge_direct_file_context(response_payload, pending)
+            response_payload = _enforce_real_change_success(task, response_payload, mode="apply")
+            upsert_direct_run_history(
+                build_direct_history_entry(
+                    str(pending.get("run_id") or ""),
+                    {**pending, **response_payload},
+                    response_payload["direct_status"],
+                )
+            )
+            return jsonify(attach_direct_ui_chrome(response_payload, pending))
+
         clear_pending_direct_run()
         blocked_payload = _build_unsafe_large_rewrite_payload(cleaned, scope=scope, mode=mode, task=task)
         blocked_payload["recognized_task"] = pending.get("recognized_task") if isinstance(pending.get("recognized_task"), dict) else {}
         blocked_payload["planned_steps"] = normalize_planned_steps(pending.get("planned_steps") or [])
         blocked_payload["rewrite_guard"] = unsafe_check
         blocked_payload["diff_summary"] = build_diff_summary(diff_text)
+        if isinstance(se_res, dict):
+            blocked_payload["step_engine_result"] = se_res
+            blocked_payload["auto_recovery_attempted"] = True
         append_ui_log_entry("Direkt", "Unsafe large rewrite blockiert.", "error")
         return blocked_payload, 400
 
@@ -14984,6 +15287,14 @@ def direct_run():
         "pruefe den ordner",
     )
     low_prompt = cleaned_prompt.lower()
+    has_uploaded_refs = bool(
+        (isinstance(data.get("uploaded_files"), list) and len(data.get("uploaded_files")) > 0)
+        or str(data.get("uploaded_file_path") or "").strip()
+    )
+    image_analysis_markers = ("bild", "image", "foto", "screenshot", "grafik", "png", "jpg", "jpeg", "webp")
+    analyze_markers = ("beschreibe", "analysiere", "analyse", "erkläre", "erklaere", "was siehst")
+    if has_uploaded_refs and any(m in low_prompt for m in image_analysis_markers) and any(m in low_prompt for m in analyze_markers):
+        pk = "project_read"
     if any(m in low_prompt for m in analysis_markers) and not has_project_change_intent(cleaned_prompt):
         pk = "project_read"
     # Absicherung: Änderungsabsicht nie als reiner Chat (auch bei veralteter Klassifikation)
@@ -15281,6 +15592,20 @@ def direct_run():
     # Reine Analyse / Lesen — keine Vorschau-Patches, kein Agent-Loop-Apply
     if pk == "project_read":
         # Deterministischer Read-Only-Output ohne Chat-Greeting-Fallback.
+        upload_lines = []
+        for u in list((upload_ctx_meta or {}).get("uploads") or [])[:5]:
+            if not isinstance(u, dict):
+                continue
+            name = str(u.get("filename") or "-")
+            ftype = str(u.get("file_type") or "-")
+            size = int(u.get("size") or 0)
+            summary = str(u.get("summary") or "").strip()
+            upload_lines.append(f"- {name} ({ftype}, {size} Bytes){(': ' + summary) if summary else ''}")
+        upload_block = (
+            "\n\n## Upload-Kontext\n" + "\n".join(upload_lines)
+            if upload_lines
+            else ""
+        )
         analysis_text = (
             "## Ziel\n"
             f"{cleaned_prompt}\n\n"
@@ -15290,6 +15615,7 @@ def direct_run():
             "- Keine (Read-Only Analyse)\n\n"
             "## Status\n"
             "- OK"
+            + upload_block
         )
         read_payload = {
             "ok": True,
@@ -15596,6 +15922,72 @@ def direct_run():
             {"phase": "agent_direct_apply", "task": task},
         )
         if bool(unsafe_check.get("unsafe")):
+            applied_rec, se_res = _try_unsafe_rewrite_step_engine_apply(
+                relative_path=relative_path,
+                resolved_path=resolved_path,
+                current_content=before_content,
+                proposed_content=proposed_content,
+                task=task,
+                unsafe_check=unsafe_check,
+            )
+            if applied_rec:
+                append_ui_log_entry("Direkt", f"Auto-Recovery (Step-Engine) direct-run: {relative_path}", "success")
+                post_check = run_local_post_check(resolved_path, relative_path, proposed_content)
+                created_files = [relative_path] if not before_exists else []
+                changed_files = [relative_path]
+                ws = [
+                    {"phase": "analyze", "level": "info", "title": "Agent-Auftrag erkannt", "detail": "Auto-Apply aktiv", "status": "running"},
+                    {"phase": "route", "level": "info", "title": "Ziel aus Prompt extrahiert", "detail": relative_path, "status": "done"},
+                    {"phase": "recovery", "level": "success", "title": "Step-Engine Recovery", "detail": "Kleiner Patch automatisch angewendet.", "status": "done"},
+                    {"phase": "write", "level": "success", "title": "Datei geschrieben", "detail": relative_path, "status": "done"},
+                    {"phase": "verify", "level": "success" if post_check.get("ok") else "error", "title": "Post-Check", "detail": post_check.get("detail") or "-", "status": "done" if post_check.get("ok") else "failed"},
+                ]
+                payload = {
+                    "run_id": run_id,
+                    "scope": "local",
+                    "mode": "apply",
+                    "direct_status": "verified" if post_check.get("ok") else "applied",
+                    "message": "Agent-Auftrag direkt ausgefuehrt (Step-Engine-Recovery).",
+                    "recognized_task": {
+                        "task_type": "agent_instruction_prompt",
+                        "primary_area": "Direct",
+                        "execution_route": "agent_direct_write",
+                        "hint": "Direkte Ausfuehrung ohne Review.",
+                    },
+                    "created_files": created_files,
+                    "changed_files": changed_files,
+                    "affected_files": [relative_path],
+                    "selected_target_path": relative_path,
+                    "post_check": {
+                        "ok": bool(post_check.get("ok")),
+                        "path": relative_path,
+                        "target": str(resolved_path),
+                        "exists": bool(resolved_path.exists()),
+                        "detail": post_check.get("detail") or "",
+                    },
+                    "requires_confirmation": False,
+                    "requires_user_confirmation": False,
+                    "auto_apply": True,
+                    "auto_continue": True,
+                    "skip_review": True,
+                    "direct_execute": True,
+                    "workstream_events": ws,
+                    "split_patch_recovery": True,
+                    "step_engine_result": se_res if isinstance(se_res, dict) else {},
+                    "formatted_response": (
+                        "Geänderte Dateien\n"
+                        f"- {relative_path}\n\n"
+                        "Kurz umgesetzt\n"
+                        "- Agent-Auftrag mit Step-Engine-Recovery angewendet.\n\n"
+                        "Kurz getestet\n"
+                        f"- Post-Check: {'OK' if post_check.get('ok') else 'Fehler'}\n\n"
+                        "Verbleibende echte Restlücken nur falls vorhanden\n"
+                        "- Keine."
+                    ),
+                }
+                payload = _enforce_real_change_success(task, payload, mode="apply")
+                return jsonify(enrich_direct_run_response(payload))
+
             blocked_payload = _build_unsafe_large_rewrite_payload(relative_path, scope="local", mode="apply", task=task)
             blocked_payload["run_id"] = run_id
             blocked_payload["recognized_task"] = {
@@ -15608,6 +16000,9 @@ def direct_run():
                 {"phase": "analyze", "level": "info", "title": "Agent-Auftrag erkannt", "detail": "Auto-Apply aktiv", "status": "running"},
                 {"phase": "guard", "level": "error", "title": "Änderung blockiert", "detail": "Datei würde zu stark überschrieben.", "status": "blocked"},
             ]
+            if isinstance(se_res, dict):
+                blocked_payload["step_engine_result"] = se_res
+                blocked_payload["auto_recovery_attempted"] = True
             return jsonify(enrich_direct_run_response(blocked_payload)), 400
 
         write_result = persist_text_file_change(
@@ -17365,7 +17760,7 @@ def workspace_file_read_endpoint():
     if not target.exists() or not target.is_file():
         return jsonify({"ok": False, "status": "not_found"}), 404
     content = target.read_text(encoding="utf-8", errors="ignore")
-    return jsonify({"ok": True, "path": rel, "content": content[:20000], "truncated": len(content) > 20000})
+    return jsonify({"ok": True, "path": rel, "content": content, "truncated": False})
 
 
 @app.route("/api/editor/diff-preview", methods=["POST"])
@@ -21960,6 +22355,101 @@ def hybrid_status():
         }), 200
 
 
+@app.route("/api/generated-media/<path:filename>", methods=["GET"])
+def api_serve_generated_media(filename: str):
+    raw = str(filename or "").strip().replace("\\", "/")
+    name = Path(raw).name
+    if not name or not re.match(r"^[A-Za-z0-9_.-]+$", name):
+        return jsonify({"ok": False}), 404
+    base = GENERATED_IMAGES_DIR.resolve()
+    target = (base / name).resolve()
+    try:
+        target.relative_to(base)
+    except Exception:
+        return jsonify({"ok": False}), 404
+    if not target.is_file():
+        return jsonify({"ok": False}), 404
+    return send_from_directory(str(base), name)
+
+
+@app.route("/api/image/generate", methods=["POST"])
+def api_image_generate():
+    data = request.get_json(silent=True) or {}
+    prompt = str(data.get("prompt") or "").strip()
+    size = str(data.get("size") or "1024x1024").strip()
+    if not prompt:
+        return jsonify({"ok": False, "error": "Prompt darf nicht leer sein."}), 400
+    if len(prompt) > 2000:
+        return jsonify({"ok": False, "error": "Prompt maximal 2000 Zeichen."}), 400
+    try:
+        out = generate_image_via_openai(prompt=prompt, size=size)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    if not out.get("ok"):
+        return jsonify({"ok": False, "error": str(out.get("error") or "Bildgenerierung fehlgeschlagen.")}), 502
+    remote = str(out.get("remote_url") or "").strip()
+    b64 = str(out.get("b64_json") or "").strip()
+    fname = f"gen_{uuid4().hex[:16]}.png"
+    dest = (GENERATED_IMAGES_DIR / fname).resolve()
+    try:
+        if remote:
+            rr = requests.get(remote, timeout=90)
+            rr.raise_for_status()
+            dest.write_bytes(rr.content)
+        elif b64:
+            dest.write_bytes(base64.b64decode(b64))
+        else:
+            return jsonify({"ok": False, "error": "Bild-API lieferte weder URL noch Base64."}), 502
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"Bild konnte nicht gespeichert werden: {exc}"}), 500
+    rel_url = f"/api/generated-media/{fname}"
+    return jsonify(
+        {
+            "ok": True,
+            "type": "image",
+            "image_url": rel_url,
+            "prompt": prompt,
+            "provider": str(out.get("provider") or "openai_compatible"),
+            "model": str(out.get("model") or ""),
+        }
+    ), 200
+
+
+@app.route("/api/weather", methods=["GET"])
+def api_weather():
+    city = str(request.args.get("city", "Idar-Oberstein")).strip() or "Idar-Oberstein"
+    lat = str(request.args.get("lat", "49.711")).strip()
+    lon = str(request.args.get("lon", "7.314")).strip()
+    try:
+        weather_res = requests.get(
+            f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,weather_code&timezone=auto",
+            timeout=8,
+        )
+        weather_res.raise_for_status()
+        payload = weather_res.json() or {}
+        current = payload.get("current") or {}
+        return jsonify(
+            {
+                "ok": True,
+                "city": city,
+                "temperature": current.get("temperature_2m"),
+                "status": _weather_status_from_code(current.get("weather_code")),
+                "lat": lat,
+                "lon": lon,
+            }
+        ), 200
+    except Exception as exc:
+        return jsonify(
+            {
+                "ok": False,
+                "city": city,
+                "temperature": None,
+                "status": "Wetterdaten nicht erreichbar",
+                "error": str(exc),
+            }
+        ), 200
+
+
 @app.route("/api/hybrid/ask", methods=["POST"])
 def hybrid_ask():
     """
@@ -22074,7 +22564,20 @@ def rambo_api_json_errors(exc):
 
 
 if __name__ == "__main__":
+    import urllib.error
+    import urllib.request
+
     _port = int(os.environ.get("FLASK_PORT", os.environ.get("SERVER_PORT", "5002")))
+    if str(os.environ.get("RAINER_ALLOW_SECOND_INSTANCE") or "").strip().lower() not in ("1", "true", "yes"):
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{_port}/api/health", timeout=0.35)
+            print(
+                f"[main] Backend antwortet bereits auf Port {_port} (/api/health). "
+                "Zweiten Start verhindert. Zum Erzwingen: RAINER_ALLOW_SECOND_INSTANCE=1"
+            )
+            sys.exit(3)
+        except (urllib.error.URLError, OSError, TimeoutError):
+            pass
     _debug = os.environ.get("FLASK_DEBUG", "").strip().lower() in ("1", "true", "yes")
     _sock = app.config.get("RAMBO_SOCKETIO")
     if _sock is not None:

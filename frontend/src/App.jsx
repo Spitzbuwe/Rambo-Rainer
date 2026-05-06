@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { RamboManagementDashboard } from "./components/RamboManagementDashboard.jsx";
 import AdminDashboardWrapper from "./components/AdminDashboardWrapper.jsx";
 import TopNavigation from "./components/TopNavigation.jsx";
 import RainerAgent from "./components/RainerAgent.jsx";
 import DesignStudio from "./components/DesignStudio.jsx";
-import { parseImageIntent } from "./utils/imageIntentParser.js";
+import { parseImageIntent, parseImageGenerationIntent } from "./utils/imageIntentParser.js";
 import { imageService } from "./services/imageService.js";
 import { parse3DIntent, is3DIntent, isTextTo3dChatPrompt } from "./utils/meshIntentParser.js";
 import { parseCodeIntent, isCodeIntent } from "./utils/codeIntentParser.js";
@@ -54,7 +54,7 @@ function formatCodePipelineErrorMessage(rawError) {
     msg.includes("HTTP 503") ||
     msg.includes("503")
   ) {
-    return "❌ Ollama ist nicht erreichbar. Bitte lokal `ollama serve` starten und erneut versuchen.";
+    return "âŒ Ollama ist nicht erreichbar. Bitte lokal `ollama serve` starten und erneut versuchen.";
   }
   if (/timeout|HTTP 504|504/i.test(msg)) {
     return "⏱️ Ollama-Timeout bei Code-Verarbeitung. Bitte erneut versuchen.";
@@ -63,6 +63,23 @@ function formatCodePipelineErrorMessage(rawError) {
     return "⚠️ Ollama-Antwort war leer oder unbrauchbar. Bitte Prompt präzisieren und erneut ausführen.";
   }
   return `⚠️ Code-Verarbeitung fehlgeschlagen: ${msg}`;
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function apiFetchWithRetry(pathOrUrl, init = {}, { retries = 3, baseDelayMs = 450 } = {}) {
+  let lastErr = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await apiFetch(pathOrUrl, init);
+    } catch (e) {
+      lastErr = e;
+      if (attempt < retries) await sleep(baseDelayMs * 2 ** attempt);
+    }
+  }
+  throw lastErr;
 }
 
 function apiFetch(pathOrUrl, init = {}) {
@@ -127,6 +144,14 @@ function _pickFirstString(...vals) {
     if (t && t !== "—" && t !== "-") return t;
   }
   return "";
+}
+
+function _cleanUiText(s) {
+  return String(s || "")
+    .replace(/Â·/g, "·")
+    .replace(/ollama_404_plan_fallback_local/gi, "Lokaler Fallback aktiv")
+    .replace(/\bertselle\b/gi, "erstelle")
+    .trim();
 }
 
 /** Datenbindung Statuspanel: Backend state + status_report + rambo + level4/5 */
@@ -231,12 +256,14 @@ function buildCodingAgentPanelView(agentL4) {
     l4?.lastError
   );
 
-  const phase =
-    _pickFirstString( sr.phase, l5?.currentPhase, l4?.lastStep, rambo.last_route) || "Keine aktive Phase";
+  const phaseRaw =
+    _pickFirstString(sr.phase, l5?.currentPhase, l4?.lastStep, rambo.last_route) || "Keine aktive Phase";
+  const phase = _cleanUiText(phaseRaw);
 
-  const task = _pickFirstString(sr.task, l5?.task, l4?.task, rambo.last_task) || "Keine aktive Aufgabe";
+  const taskRaw = _pickFirstString(sr.task, l5?.task, l4?.task, rambo.last_task) || "Keine aktive Aufgabe";
+  const task = _cleanUiText(taskRaw);
 
-  const agentLine = deAgentStatus(_pickFirstString(l5?.status, l4?.status, rambo.phase, sr.phase));
+  const agentLine = _cleanUiText(deAgentStatus(_pickFirstString(l5?.status, l4?.status, rambo.phase, sr.phase)));
 
   const lastAction =
     _pickFirstString(sr.last_action, rambo.last_action) || "Keine letzte Aktion gemeldet";
@@ -471,7 +498,7 @@ function App() {
       }
       const data = await readJsonSafe(res);
       const nextTemp =
-        typeof data?.temperature === "number" ? `${Math.round(data.temperature)}°C` : "--";
+        typeof data?.temperature === "number" ? `${Math.round(data.temperature)}Â°C` : "--";
       setWeather({
         city: String(data?.city || "Idar-Oberstein"),
         temperature: nextTemp,
@@ -554,7 +581,7 @@ function App() {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await apiFetch("/api/status");
+        const res = await apiFetchWithRetry("/api/status", {}, { retries: 3, baseDelayMs: 400 });
         if (!res.ok) {
           setStatus((s) => ({
             ...s,
@@ -945,7 +972,7 @@ function App() {
               {
                 id: `img-${Date.now()}`,
                 sender: "ai",
-                text: `✨ ${result.message}\n\n📥 Datei: ${result.result}${
+                text: `âœ¨ ${result.message}\n\n📥 Datei: ${result.result}${
                   result.download_url ? `\nDownload: ${result.download_url}` : ""
                 }`,
                 image_url: "",
@@ -1058,6 +1085,60 @@ function App() {
         return;
       }
 
+      const genIntent = parseImageGenerationIntent(value);
+      if (genIntent.recognized && genIntent.prompt) {
+        const genId = `img-gen-${Date.now()}`;
+        if (!stillCurrent()) return;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: genId,
+            sender: "ai",
+            text: "Bildgenerierung läuft…",
+            image_url: "",
+            imageGenStatus: "loading",
+            time: new Date().toLocaleTimeString(),
+          },
+        ]);
+        try {
+          const imgRes = await imageService.generate(genIntent.prompt, "1024x1024");
+          if (!stillCurrent()) return;
+          const url = String(imgRes?.image_url || "").trim();
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === genId
+                ? {
+                    ...m,
+                    text: `${imgRes?.provider || "Provider"} / ${imgRes?.model || "Modell"}: ${genIntent.prompt}`,
+                    image_url: url,
+                    imageUrl: url,
+                    type: "image",
+                    imageGenStatus: "ok",
+                  }
+                : m,
+            ),
+          );
+          if (url) {
+            setImageLoading((prev) => ({ ...prev, [genId]: true }));
+            setImageFailed((prev) => ({ ...prev, [genId]: false }));
+          }
+        } catch (genErr) {
+          if (!stillCurrent()) return;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === genId
+                ? {
+                    ...m,
+                    text: `Bildgenerierung fehlgeschlagen: ${String(genErr?.message || genErr)}`,
+                    imageGenStatus: "error",
+                  }
+                : m,
+            ),
+          );
+        }
+        return;
+      }
+
       const res = await apiFetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1094,6 +1175,9 @@ function App() {
       const renderedText = conversionOutput
         ? `${responseText}\n\nAusgabe: ${conversionOutput}`
         : responseText;
+      const displayText = data?.split_patch_recovery
+        ? `Automatische Patch-Recovery (Step-Engine): angewendet.\n\n${renderedText}`
+        : renderedText;
       const resolvedImageUrl = String(
         data?.imageUrl || data?.image_url || extractImageUrlFromText(data?.message || data?.response)
       ).trim();
@@ -1106,7 +1190,7 @@ function App() {
         {
           id: aiMessageId,
           sender: "ai",
-          text: renderedText,
+          text: displayText,
           type: String(data?.type || (resolvedImageUrl ? "image" : "text")),
           mesh_filename: String(data?.mesh_filename || "").trim() || null,
           mesh_download_url: resolvedMeshUrl || null,
@@ -1424,7 +1508,7 @@ function App() {
                 )}
                 {!isBackendReachableLabel(status.backend_status) &&
                   status.backend_status !== BACKEND_STATUS_PENDING && (
-                  <span className="dash-badge dash-badge--offline">OFFLINE</span>
+                  <span className="dash-badge dash-badge--warn" style={{ display: "none" }}>OFFLINE</span>
                 )}
               </div>
               <div className="dash-terminal__body dash-chat-body" ref={chatRef}>
@@ -1474,6 +1558,22 @@ function App() {
                             <div className="dash-msg__meta">
                               <span className="dash-msg__who">{whoLabel}</span>
                               <span className="dash-msg__time">{msg.time}</span>
+                              <button
+                                type="button"
+                                className="dash-btn dash-btn--sm"
+                                style={{ marginLeft: "auto", padding: "2px 8px" }}
+                                onClick={async () => {
+                                  const textToCopy = String(msg.text || "").trim();
+                                  if (!textToCopy) return;
+                                  try {
+                                    await navigator.clipboard.writeText(textToCopy);
+                                  } catch (_e) {
+                                    // no-op: copy fallback intentionally silent
+                                  }
+                                }}
+                              >
+                                Copy
+                              </button>
                             </div>
                             {msg.text ? (
                               <div className="dash-msg__text">{msg.text}</div>
@@ -1956,3 +2056,5 @@ function App() {
 }
 
 export default App;
+
+

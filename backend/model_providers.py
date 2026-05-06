@@ -24,6 +24,7 @@ PROVIDER_OLLAMA = "ollama"
 PROVIDER_LM_STUDIO = "lm_studio"
 PROVIDER_LLAMACPP = "llama_cpp"
 # Vorbereitet, nur nutzbar wenn allow_external explizit true (derzeit kein Aufruf implementiert)
+PROVIDER_GROQ = "groq"
 PROVIDER_OPENAI_API = "openai_api"
 PROVIDER_ANTHROPIC_API = "anthropic_api"
 _LOCAL_ACTIVE_IDS = {PROVIDER_OLLAMA, PROVIDER_LM_STUDIO, PROVIDER_LLAMACPP}
@@ -261,6 +262,14 @@ def get_available_providers() -> list[dict[str, Any]]:
             "local_only": True,
         },
         {
+            "id": "groq",
+            "label": "Groq (Cloud, kostenlos)",
+            "kind": "groq",
+            "base_url": "https://api.groq.com/openai/v1",
+            "enabled": bool(__import__('os').environ.get("GROQ_API_KEY")),
+            "local_only": False,
+        },
+        {
             "id": PROVIDER_OPENAI_API,
             "label": "OpenAI API (vorbereitet, nicht automatisch)",
             "kind": "cloud_openai",
@@ -290,6 +299,15 @@ def allow_external_llm() -> bool:
 
 
 def get_active_provider() -> dict[str, Any]:
+    import os as _os
+    if _os.environ.get("GROQ_API_KEY"):
+        return {
+            "id": "groq",
+            "label": "Groq (Cloud, kostenlos)",
+            "kind": "groq",
+            "base_url": "https://api.groq.com/openai/v1",
+            "model": _os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        }
     s = load_merged_settings()
     pid = s["active_provider"]
     providers = {p["id"]: p for p in get_available_providers()}
@@ -311,6 +329,18 @@ def get_active_provider() -> dict[str, Any]:
 
 
 def check_provider_health(provider_id: Optional[str] = None) -> dict[str, Any]:
+    if provider_id == "groq":
+        import os as _os, requests as _req
+        key = _os.environ.get("GROQ_API_KEY", "")
+        if not key:
+            return {"reachable": False, "model": "", "chat_available": False, "coding_available": False, "detail": "Kein GROQ_API_KEY"}
+        try:
+            r = _req.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {key}"}, timeout=5)
+            if r.status_code == 200:
+                return {"reachable": True, "model": _os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"), "chat_available": True, "coding_available": True, "detail": ""}
+        except Exception as e:
+            return {"reachable": False, "model": "", "chat_available": False, "coding_available": False, "detail": str(e)}
+        return {"reachable": False, "model": "", "chat_available": False, "coding_available": False, "detail": "HTTP Fehler"}
     """
     Erreichbarkeit und Modellinfo für einen Provider.
     provider_id None → aktiver Provider.
@@ -811,3 +841,64 @@ def is_llm_failure_message(text: str) -> bool:
     """True wenn Antwort ein lokaler Verfügbarkeits-/Generierungsfehler ist (⚠️ …)."""
     t = str(text or "").strip()
     return t.startswith("⚠️") and ("nicht erreichbar" in t or "ungueltig" in t)
+
+
+def generate_image_via_openai(
+    *,
+    prompt: str,
+    size: str = "1024x1024",
+    timeout: int = 120,
+) -> dict[str, Any]:
+    """POST /v1/images/generations (OpenAI-kompatibel). Keys: OPENAI_API_KEY oder RAINER_IMAGE_API_KEY."""
+    key = str(os.getenv("RAINER_IMAGE_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
+    if not key:
+        return {
+            "ok": False,
+            "error": "Kein API-Key: OPENAI_API_KEY oder RAINER_IMAGE_API_KEY setzen.",
+        }
+    base = str(os.getenv("RAINER_IMAGE_BASE_URL") or "https://api.openai.com/v1").strip().rstrip("/")
+    if not base.endswith("/v1"):
+        base = base + "/v1"
+    model = str(os.getenv("RAINER_IMAGE_MODEL") or "dall-e-3").strip()
+    allowed_d3 = {"1024x1024", "1792x1024", "1024x1792"}
+    allowed_d2 = {"256x256", "512x512", "1024x1024"}
+    sz = str(size or "1024x1024").strip()
+    if model.startswith("dall-e-3"):
+        if sz not in allowed_d3:
+            sz = "1024x1024"
+    else:
+        if sz not in allowed_d2:
+            sz = "1024x1024"
+    url = base.rstrip("/") + "/images/generations"
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    body: dict[str, Any] = {"model": model, "prompt": str(prompt or "").strip(), "n": 1, "size": sz}
+    try:
+        r = _SESSION.post(url, headers=headers, json=body, timeout=timeout)
+        if r.status_code >= 400:
+            try:
+                err_js = r.json()
+                err_obj = err_js.get("error")
+                if isinstance(err_obj, dict):
+                    err_msg = str(err_obj.get("message") or err_obj)[:800]
+                else:
+                    err_msg = str(err_obj or err_js)[:800]
+            except Exception:
+                err_msg = (r.text or str(r.status_code))[:800]
+            return {"ok": False, "error": f"Bild-API HTTP {r.status_code}: {err_msg}"}
+        data = r.json() or {}
+        items = list(data.get("data") or [])
+        if not items or not isinstance(items[0], dict):
+            return {"ok": False, "error": "Leere Antwort von Bild-API."}
+        first = items[0]
+        remote = str(first.get("url") or "").strip()
+        b64 = str(first.get("b64_json") or "").strip()
+        return {
+            "ok": True,
+            "remote_url": remote,
+            "b64_json": b64,
+            "provider": "openai_compatible",
+            "model": model,
+            "size": sz,
+        }
+    except requests.RequestException as exc:
+        return {"ok": False, "error": f"Netzwerkfehler Bild-API: {exc}"}

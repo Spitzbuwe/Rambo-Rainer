@@ -1,3 +1,39 @@
+/** Reine Text-Prompts: Bild erzeugen (ohne Upload), z. B. „erstelle ein Bild von …“. */
+export function parseImageGenerationIntent(message) {
+  const raw = String(message || "").trim();
+  if (!raw) {
+    return { recognized: false, prompt: "", originalMessage: message };
+  }
+  const low = raw
+    .replace(/\u00a0/g, " ")
+    .replace(/\u200b/g, "")
+    .toLowerCase();
+
+  const negative =
+    /\b(analysier|analyse|beschreib|erkenn|was\s+steht|screenshot|upload|hochlad|entfern|hintergrund|freistell|crop|zuschneid|resize|3d|mesh|stl|glb)\b/i.test(
+      raw,
+    );
+  if (negative) {
+    return { recognized: false, prompt: "", originalMessage: message };
+  }
+
+  const patterns = [
+    /\b(erstelle|erzeuge|generiere|zeichne|male|create|generate|draw|paint)\b.{0,120}\b(bild|image|logo|illustration|grafik|kunstwerk|avatar)\b/i,
+    /\b(bild|logo|illustration|grafik)\b.{0,80}\b(erstelle|erzeuge|generiere|von|mit)\b/i,
+    /\bdall-?e\b/i,
+    /\bstable\s*diffusion\b/i,
+    /\bmidjourney\b/i,
+  ];
+
+  for (const re of patterns) {
+    if (re.test(low) || re.test(raw)) {
+      return { recognized: true, prompt: raw, originalMessage: message };
+    }
+  }
+
+  return { recognized: false, prompt: "", originalMessage: message };
+}
+
 export const parseImageIntent = (message) => {
   const msg = String(message || "")
     .replace(/\u00a0/g, " ")
