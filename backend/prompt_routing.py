@@ -215,7 +215,38 @@ def classify_with_groq(task: str) -> str:
 _classify_intent_with_llm = classify_with_groq
 
 
+def should_route_direct_run_as_chat(prompt: str) -> bool:
+    """
+    Kurze Meta-/Diagnosefragen (App offline, „was macht der Generator“) —
+    Chat statt project_read. Groq klassifiziert solche Prompts oft als „analysis“.
+    """
+    txt = str(prompt or "").strip().lower()
+    if not txt:
+        return False
+    if re.search(r"\büberprüfe\s+warum\b", txt) and any(
+        w in txt for w in ("offline", "online", "app", "backend", "nicht erreichbar", "startet", "server")
+    ):
+        return True
+    if ("warum" in txt or "wieso" in txt) and "app" in txt and any(
+        w in txt for w in ("offline", "online", "geht nicht", "nicht erreichbar", "down", "läuft nicht", "laeuft nicht")
+    ):
+        return True
+    # „Was macht der/tut der …“ — Typo „generato“; keine explizite Code-/Ordner-Analyse
+    if len(txt) <= 130:
+        m = re.search(r"\bwas\s+(macht|tut)\s+(der|die|das)\s+(\S+)", txt)
+        if m:
+            noun = (m.group(3) or "").lower().strip("?.!,\"'")
+            if noun.startswith(("projekt", "ordner", "datei", "codebase", "komponent", "workspace")):
+                return False
+            if re.search(r"\b(analysiere|untersuche\s+den|bewerte\s+den|review\s+die)\b", txt, re.IGNORECASE):
+                return False
+            return True
+    return False
+
+
 def is_analysis_only_prompt(task: str) -> bool:
+    if should_route_direct_run_as_chat(task):
+        return False
     return classify_with_groq(task) == "analysis"
 
 
@@ -339,7 +370,7 @@ def _classify_user_prompt_intent_heuristic_core(prompt: str) -> str:
     if re.search(r"\b(analysiere|analyse|untersuche|bewert\w*)\b", txt, re.IGNORECASE) and (
         re.search(r"\.(py|js|tsx|jsx|ts|css|html|json|md)\b", txt, re.IGNORECASE)
         or re.search(
-            r"\b(backend|frontend|src/|src\\|tests/|tests\\|projekt|projektordner|codebase|modul|komponente|generator|ordner|verzeichnis|workspace)\b",
+            r"\b(backend|frontend|src/|src\\|tests/|tests\\|projekt|projektordner|codebase|modul|komponente|ordner|verzeichnis|workspace)\b",
             txt,
             re.IGNORECASE,
         )
@@ -390,6 +421,8 @@ def classify_user_prompt(prompt: str) -> str:
         return "unknown"
     if _is_risky_user_intent(prompt):
         return "risky_project_task"
+    if should_route_direct_run_as_chat(prompt):
+        return "chat"
 
     llm_intent = classify_with_groq(prompt)
     if llm_intent == "analysis":

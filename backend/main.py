@@ -84,6 +84,7 @@ from prompt_routing import (
     has_project_change_intent,
     is_analysis_only_prompt,
     is_folder_analysis_prompt,
+    should_route_direct_run_as_chat,
     unclear_chat_short_reply,
     unknown_clarification_reply,
 )
@@ -15276,6 +15277,8 @@ def direct_run():
         return jsonify(ps_env), 200
 
     pk = classify_user_prompt(cleaned_prompt)
+    if should_route_direct_run_as_chat(cleaned_prompt):
+        pk = "chat"
     # Analyse-Prompts hart auf Read-Only routen (kein Auto-Datei-Template).
     analysis_markers = (
         "analysiere",
