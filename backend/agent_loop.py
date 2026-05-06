@@ -11,12 +11,13 @@ Nach Ordner-Freigabe arbeitet Rainer selbstständig:
 """
 
 import os
+import pathlib
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(pathlib.Path(__file__).parent.parent / ".env")
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile").strip() or "llama-3.3-70b-versatile"
 
 import re
 import json
@@ -151,7 +152,8 @@ def _read_file(path: Path, max_bytes: Optional[int] = None) -> tuple[str, bool]:
         skipped = max(0, size - len(head_b) - len(tail_b))
         marker = f"\n\n[... {skipped} Bytes in der Dateimitte ausgelassen (Datei {size} Bytes, Limit {limit}) ...]\n\n"
         return head_s + marker + tail_s, True
-    except Exception:
+    except Exception as _groq_ex:
+        print(f"[GROQ ERROR] {_groq_ex}")
         return "", False
 
 
@@ -259,8 +261,20 @@ def _is_internal_llm_placeholder_text(text: str) -> bool:
 
 
 def _call_groq(prompt: str, system: str = "") -> str:
-    """Groq OpenAI-kompatible Chat-API; bei Fehler oder fehlendem Key leerer String."""
-    key = (GROQ_API_KEY or "").strip()
+    """Groq OpenAI-kompatible Chat-API; bei Fehler oder fehlendem Key leerer String.
+
+    Key/Modell werden pro Aufruf aus os.environ gelesen (nicht nur beim Import).
+    Bei HTTP 429 (Rate Limit) kurze Retries mit Backoff.
+    """
+    key = (
+        str(os.environ.get("GROQ_API_KEY", "") or "").strip()
+        or str(GROQ_API_KEY or "").strip()
+    )
+    model = (
+        str(os.environ.get("GROQ_MODEL", "") or "").strip()
+        or str(GROQ_MODEL or "").strip()
+        or "llama-3.3-70b-versatile"
+    )
     if not key:
         return ""
     import requests
@@ -271,29 +285,39 @@ def _call_groq(prompt: str, system: str = "") -> str:
     if sys_c:
         messages.append({"role": "system", "content": sys_c})
     messages.append({"role": "user", "content": str(prompt or "")})
-    try:
-        r = requests.post(
-            url,
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": GROQ_MODEL,
-                "messages": messages,
-                "temperature": 0.2,
-                "max_tokens": 4096,
-                "service_tier": "on_demand",
-            },
-            timeout=120,
-        )
-        r.raise_for_status()
-        data = r.json()
-        if not isinstance(data, dict):
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.2,
+        "max_tokens": 4096,
+        "service_tier": "on_demand",
+    }
+    for attempt in range(3):
+        try:
+            r = requests.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=120,
+            )
+            if r.status_code == 429 and attempt < 2:
+                time.sleep(1.5 * (2**attempt))
+                continue
+            if r.status_code != 200:
+                return ""
+            data = r.json()
+            if not isinstance(data, dict):
+                return ""
+            return _extract_chat_completion_content(data)
+        except (requests.RequestException, ValueError, json.JSONDecodeError):
+            if attempt < 2:
+                time.sleep(1.5 * (2**attempt))
+                continue
             return ""
-        return _extract_chat_completion_content(data)
-    except Exception:
-        return ""
+    return ""
 
 
 _INSTRUCTION_DUMP_HINT = re.compile(
