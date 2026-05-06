@@ -154,7 +154,16 @@ def _openai_chat_completions_url(base_v1_url: str) -> str:
 
 
 def _pick_best_ollama_model(base_url: str) -> str:
+    forced = str(
+        os.getenv("GROQ_MODEL")
+        or os.getenv("OLLAMA_MODEL")
+        or os.getenv("OLLAMA_MODEL_TURBO")
+        or ""
+    ).strip()
+    if forced:
+        return forced
     preferred = [
+        "llama-3.3-70b-versatile",
         "gemma3:12b-it-qat",
         "gemma3:12b",
         "qwen2.5-coder:latest",
@@ -170,7 +179,7 @@ def _pick_best_ollama_model(base_url: str) -> str:
                     return model
     except requests.RequestException:
         pass
-    return "qwen2.5-coder:7b"
+    return "llama-3.3-70b-versatile"
 
 
 def _openai_list_models(base_v1_url: str) -> list[str]:
