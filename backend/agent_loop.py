@@ -46,10 +46,13 @@ BLOCKED_ACTIONS = (
 
 BLOCKED_OUTSIDE_WORKSPACE = True  # Niemals außerhalb des Ordners schreiben
 
-MAX_REPAIR_ATTEMPTS = 1
+MAX_REPAIR_ATTEMPTS = 2
+MAX_SUCHE_REPAIR_ATTEMPTS = int(os.environ.get("AGENT_SUCHE_REPAIR_ATTEMPTS", "2"))
+_MAX_SUCHE_FIX_CTX = int(os.environ.get("AGENT_SUCHE_FIX_CONTEXT_CHARS", "24000"))
 MAX_FILES_PER_RUN = 20
-# Bis zu dieser Größe: komplette Datei lesen. Darüber: nur Anfang + Ende (siehe _read_file).
-MAX_FILE_SIZE_BYTES = 1024 * 1024  # 1 MiB
+# Dateilese-Limit:
+# -1 = unbegrenzt (komplette Datei lesen), sonst Byte-Limit mit Head/Tail-Fallback.
+MAX_FILE_SIZE_BYTES = int(os.environ.get("AGENT_MAX_FILE_SIZE_BYTES", "-1"))
 
 # Große Prompts: Zerlegung in Teilschritte (jeder Schritt = eigener LLM-Call)
 AGENT_CHUNK_MIN_CHARS = int(os.environ.get("AGENT_CHUNK_MIN_CHARS", "8000"))
@@ -127,6 +130,11 @@ def _read_file(path: Path, max_bytes: Optional[int] = None) -> tuple[str, bool]:
         except Exception:
             return "", False
     limit = int(max_bytes) if max_bytes is not None else MAX_FILE_SIZE_BYTES
+    if limit < 0:
+        try:
+            return path.read_text(encoding="utf-8", errors="replace"), True
+        except Exception:
+            return "", False
     limit = max(4096, limit)
     try:
         size = path.stat().st_size
@@ -245,6 +253,77 @@ def _call_groq(prompt: str, system: str = "") -> str:
         return text
     except Exception:
         return ""
+
+
+_INSTRUCTION_DUMP_HINT = re.compile(
+    r"(?im)^(aufgabe|task|ziel|anweisung)\s*[:.]|\b(entferne\s+in|ändere\s+nur|aendere\s+nur|nur\s+ausblenden|bitte\s+(ändere|aendere|implementiere))\b",
+)
+
+
+def _content_looks_like_instruction_dump(text: str) -> bool:
+    """Blockt Prompt-/Auftragstext statt echtem Code (Phase 1.4)."""
+    t = str(text or "").strip()
+    if len(t) < 40:
+        return False
+    if _INSTRUCTION_DUMP_HINT.search(t):
+        return True
+    if "DATEI:" in t and "SUCHE:" in t and "ERSETZE:" in t:
+        lines = [ln for ln in t.splitlines() if ln.strip()]
+        if len(lines) <= 16 and "def " not in t and "import " not in t:
+            return True
+    return False
+
+
+def _groq_regenerate_suche_patch(
+    workspace: Path,
+    rel_path: str,
+    current_content: str,
+    user_task: str,
+    failed_search: str,
+    failed_replace: str,
+) -> tuple[str, str] | None:
+    """Ein neuer SUCHE/ERSETZE-Block per Groq, wenn SUCHE nicht in der Datei vorkommt."""
+    if not (GROQ_API_KEY or "").strip():
+        return None
+    rel_norm = str(rel_path or "").strip().replace("\\", "/")
+    excerpt = str(current_content or "")
+    lim = max(4000, _MAX_SUCHE_FIX_CTX)
+    if len(excerpt) > lim:
+        half = lim // 2
+        excerpt = excerpt[:half] + f"\n\n[… {len(current_content) - lim} Zeichen ausgelassen …]\n\n" + excerpt[-half:]
+
+    system = (
+        "Du reparierst einen fehlgeschlagenen SEARCH/REPLACE-Block. "
+        "Der Text unter SUCHE muss EXAKT als zusammenhängende Teilzeichenkette in der Datei vorkommen. "
+        "Antworte NUR mit EINEM Block:\n"
+        f"DATEI: {rel_norm}\nSUCHE:\n…\nERSETZE:\n…\nEND\n"
+        "Kein Markdown, keine Erklärung."
+    )
+    user = (
+        f"Nutzerauftrag: {user_task[:2000]}\n\n"
+        f"Datei: {rel_norm}\n"
+        "Der bisherige SUCHE-Text wurde nicht gefunden:\n"
+        f"{failed_search[:1200]}\n\n"
+        "Geplanter ERSETZE-Inhalt (sinngemäß umsetzen, nicht als Fließtext in die Datei schreiben):\n"
+        f"{failed_replace[:1200]}\n\n"
+        f"Aktueller Dateiausschnitt:\n{excerpt}\n"
+    )
+    raw = _call_groq(user, system)
+    if not raw or raw.startswith("[LLM"):
+        return None
+    pattern = r"DATEI:\s*([^\n]+)\nSUCHE:\n(.*?)\nERSETZE:\n(.*?)\nEND"
+    matches = re.findall(pattern, raw, re.DOTALL)
+    if not matches:
+        return None
+    rp, s, r = matches[0]
+    if rp.strip().replace("\\", "/") != rel_norm:
+        return None
+    s, r = s.strip(), r.strip()
+    if not s or s not in current_content:
+        return None
+    if _content_looks_like_instruction_dump(r):
+        return None
+    return (s, r)
 
 
 def _call_ollama(prompt: str, system: str = "", model: str = "") -> str:
@@ -440,6 +519,7 @@ class AgentLoop:
         self.errors: list[str] = []
         self.substep_runs: list[dict] = []
         self.substeps_plan: list[str] = []
+        self._current_substep_task: str = ""
 
     def _log(self, phase: str, message: str, level: str = "info"):
         entry = {
@@ -475,6 +555,7 @@ class AgentLoop:
         for si, step_text in enumerate(substeps):
             self._log("substep", f"Teilschritt {si + 1}/{len(substeps)} …")
             step_user = step_text if not chunked else _step_context_user_message(task, step_text, si, len(substeps))
+            self._current_substep_task = step_user
 
             self._log("scan", "Suche relevante Dateien...")
             relevant_files = _find_relevant_files(self.workspace, step_user)
@@ -595,6 +676,10 @@ class AgentLoop:
             for rel_path, content in matches_old:
                 rel_path = rel_path.strip().replace("\\", "/")
                 content = content.strip()
+                if _content_looks_like_instruction_dump(content):
+                    self._log("guard", f"Schreiben abgebrochen (Anweisungstext?): {rel_path}", "warning")
+                    self.errors.append(f"Guard: {rel_path} Inhalt sieht nach Auftragstext aus")
+                    continue
                 target = self.workspace / rel_path
                 blocked, reason = _is_blocked_path(target, self.workspace)
                 if blocked:
@@ -630,6 +715,10 @@ class AgentLoop:
 
             # Neue Datei
             if search_text.strip() == "<<NEU>>":
+                if _content_looks_like_instruction_dump(replace_text):
+                    self._log("guard", f"Neue Datei abgebrochen (Anweisungstext?): {rel_path}", "warning")
+                    self.errors.append(f"Guard: {rel_path} <<NEU>> Inhalt ungueltig")
+                    continue
                 ok, err = _write_file(target, replace_text)
                 if ok:
                     rel_str = str(target.relative_to(self.workspace)).replace("\\", "/")
@@ -650,7 +739,27 @@ class AgentLoop:
                 self._log("guard", f"Lesen fehlgeschlagen: {rel_path}", "warning")
                 continue
 
-            # temporär: Modell-SUCHE vs. Dateiinhalt (Debug entfernen wenn stabil)
+            if _content_looks_like_instruction_dump(replace_text):
+                self._log("guard", f"ERSETZE sieht nach Anweisung aus: {rel_path}", "warning")
+                self.errors.append(f"Guard: {rel_path} ERSETZE blockiert (Auftragstext)")
+                continue
+
+            fix_try = 0
+            while search_text not in current_content and fix_try < MAX_SUCHE_REPAIR_ATTEMPTS:
+                fix_try += 1
+                self._log("repair_suche", f"SUCHE passt nicht — Groq-Reparatur {fix_try}/{MAX_SUCHE_REPAIR_ATTEMPTS} ({rel_path})")
+                repaired = _groq_regenerate_suche_patch(
+                    self.workspace,
+                    rel_path,
+                    current_content,
+                    getattr(self, "_current_substep_task", "") or "",
+                    search_text,
+                    replace_text,
+                )
+                if repaired:
+                    search_text, replace_text = repaired
+                else:
+                    break
 
             if search_text not in current_content:
                 self._log("guard", f"SUCHE-Text nicht gefunden in {rel_path}", "warning")

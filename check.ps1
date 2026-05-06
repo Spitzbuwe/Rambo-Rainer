@@ -19,6 +19,8 @@ try {
         backend/tests/test_unsafe_large_rewrite_payload.py `
         backend/tests/test_agent_loop_large_file_read.py `
         backend/tests/test_image_generate.py `
+        backend/tests/test_prompt_routing_phase1.py `
+        backend/tests/test_agent_loop_instruction_guard.py `
         -q
     if ($LASTEXITCODE -ne 0) { $script:exitCode = 10; Write-ReportLine "pytest failed exit=$LASTEXITCODE" }
 } catch {

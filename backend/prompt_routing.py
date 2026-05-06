@@ -138,24 +138,47 @@ _UNCLEAR_WHITELIST = re.compile(
     re.IGNORECASE,
 )
 
-def _classify_intent_with_llm(task: str) -> str:
+
+def _is_risky_user_intent(prompt: str) -> bool:
+    txt = str(prompt or "").strip().lower()
+    if not txt:
+        return False
+    for pat in _RISKY_PATTERNS:
+        if re.search(pat, txt, flags=re.IGNORECASE):
+            return True
+    if any(s in txt for s in _RISKY_LITERAL):
+        return True
+    if re.search(r"\b(loesche|lösche)\b.*\b(ganze|ganzen)\b", txt) and (
+        "projekt" in txt or "ordner" in txt or "verzeichnis" in txt
+    ):
+        return True
+    if re.search(r"\b(lösche|loesche|delete|entferne)\b.*\b(alle|viele|mehrere)\s+datei", txt):
+        return True
+    if re.search(r"\brm\s+", txt) and "datei" in txt:
+        return True
+    return False
+
+
+def classify_with_groq(task: str) -> str:
     """
-    LLM-Intentklassifikation via Groq.
-    Rückgabe strikt: analysis | change | unknown.
-    Bei Fehlern/Timeout immer unknown.
+    LLM-Intent via Groq (Primärpfad laut Entwicklungsplan).
+    Rückgabe: change | analysis | chat | unknown (bei Fehler/Timeout/ohne Key).
+    Timeout 3s, max_tokens 5, temperature 0.
     """
     txt = str(task or "").strip()
     if not txt:
         return "unknown"
     key = str(os.environ.get("GROQ_API_KEY") or "").strip()
-    model = "llama-3.3-70b-versatile"
+    model = str(os.environ.get("GROQ_MODEL") or "llama-3.3-70b-versatile").strip()
     if not key:
         return "unknown"
     system_prompt = (
-        "Du klassifizierst Nutzeranfragen. Antworte NUR mit einem dieser Wörter:\n"
-        "analysis (Fragen, Analyse, Suche, Kontrolle, Erklärung, Beschreibung)\n"
-        "change (Änderung, Erstellen, Löschen, Ersetzen, Hinzufügen)\n"
-        "unknown (unklar)"
+        "Du klassifizierst Nutzeranfragen für ein Coding-Tool. "
+        "Antworte NUR mit genau einem Wort, ohne Satzzeichen:\n"
+        "change — der Nutzer will Dateien/Projekt ändern, erstellen, Code schreiben\n"
+        "analysis — nur erklären, analysieren, verstehen, lesen, Frage ohne Edit\n"
+        "chat — reine Unterhaltung, Begrüßung, Meta, kein Projektbezug\n"
+        "unknown — du bist dir unsicher"
     )
     try:
         resp = requests.post(
@@ -171,27 +194,29 @@ def _classify_intent_with_llm(task: str) -> str:
                     {"role": "user", "content": txt},
                 ],
                 "temperature": 0,
-                "max_tokens": 10,
+                "max_tokens": 5,
                 "service_tier": "on_demand",
             },
-            timeout=8,
+            timeout=3,
         )
         resp.raise_for_status()
         payload = resp.json() if resp.content else {}
         choice = ((payload.get("choices") or [{}])[0] or {}).get("message") or {}
         raw = str(choice.get("content") or "").strip().lower()
-        if raw.startswith("analysis"):
-            return "analysis"
-        if raw.startswith("change"):
-            return "change"
+        for token in ("analysis", "change", "chat", "unknown"):
+            if raw.startswith(token):
+                return token
         return "unknown"
     except Exception:
         return "unknown"
 
 
+# Abwärtskompatibel (interne Aufrufer)
+_classify_intent_with_llm = classify_with_groq
+
+
 def is_analysis_only_prompt(task: str) -> bool:
-    intent = _classify_intent_with_llm(task)
-    return intent == "analysis"
+    return classify_with_groq(task) == "analysis"
 
 
 def unclear_chat_short_reply() -> str:
@@ -202,31 +227,11 @@ def unclear_chat_short_reply() -> str:
     )
 
 
-def classify_user_prompt_intent(prompt: str) -> str:
+def _classify_user_prompt_intent_heuristic_core(prompt: str) -> str:
+    """Regex/Keyword-Intent ohne zweites Groq (für classify_user_prompt-Fallback)."""
     txt = str(prompt or "").strip().lower()
     if not txt:
         return "unknown"
-
-    for pat in _RISKY_PATTERNS:
-        if re.search(pat, txt, flags=re.IGNORECASE):
-            return "risky_task"
-    if any(s in txt for s in _RISKY_LITERAL):
-        return "risky_task"
-
-    # Riskant: ganzer Projekt-/Ordner-Loeschauftrag (auch zusammengesetzte Woerter)
-    if re.search(r"\b(loesche|lösche)\b.*\b(ganze|ganzen)\b", txt) and (
-        "projekt" in txt or "ordner" in txt or "verzeichnis" in txt
-    ):
-        return "risky_task"
-
-    # Riskant: massenhaft loeschen / rm
-    if re.search(r"\b(lösche|loesche|delete|entferne)\b.*\b(alle|viele|mehrere)\s+datei", txt):
-        return "risky_task"
-    if re.search(r"\brm\s+", txt) and "datei" in txt:
-        return "risky_task"
-
-    if is_analysis_only_prompt(prompt):
-        return "analysis_request"
 
     if txt in _GREETING_EXACT:
         return "greeting"
@@ -363,19 +368,38 @@ def classify_user_prompt_intent(prompt: str) -> str:
     return "unknown"
 
 
+def classify_user_prompt_intent(prompt: str) -> str:
+    """Voll-Intent inkl. Risky + Groq-Analyse + Heuristik (für Legacy-Aufrufer)."""
+    txt = str(prompt or "").strip().lower()
+    if not txt:
+        return "unknown"
+    if _is_risky_user_intent(prompt):
+        return "risky_task"
+    if is_analysis_only_prompt(prompt):
+        return "analysis_request"
+    return _classify_user_prompt_intent_heuristic_core(prompt)
+
+
 def classify_user_prompt(prompt: str) -> str:
     """
     Rueckgabe: chat | project_read | project_task | risky_project_task | unknown
-    Reihenfolge: riskant zuerst, dann Änderungsabsicht (project_task), dann reine Lese-/Analyseauftraege (project_read).
+    Reihenfolge: riskant zuerst, dann Groq (change/analysis/chat), bei unknown nur Heuristik (kein zweites Groq).
     """
-    # Primäre Klassifikation über LLM-Intent (vor allen weiteren Checks)
-    llm_intent = _classify_intent_with_llm(prompt)
+    txt = str(prompt or "").strip().lower()
+    if not txt:
+        return "unknown"
+    if _is_risky_user_intent(prompt):
+        return "risky_project_task"
+
+    llm_intent = classify_with_groq(prompt)
     if llm_intent == "analysis":
         intent = "analysis_request"
     elif llm_intent == "change":
         intent = "coding_task"
+    elif llm_intent == "chat":
+        return "chat"
     else:
-        intent = classify_user_prompt_intent(prompt)
+        intent = _classify_user_prompt_intent_heuristic_core(prompt)
     if intent == "risky_task":
         return "risky_project_task"
     if intent == "analysis_request":
