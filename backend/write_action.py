@@ -63,6 +63,7 @@ def execute_write_action(
             previous, _ = _read_utf8(resolved)
         allowed, verr = validate_write_payload(resolved, normalized, previous, had_file)
         if not allowed:
+            # Auto-Recovery-Hinweis: bestehende Datei bleibt unverändert, Aufrufer kann Patch-Flow starten.
             return {"ok": False, "error": verr or "Schreibabweisung (Agent-Regeln).", "lines": 0, "restored": False}
         if had_file and backup and previous is not None:
             backup_path = resolved.parent / (resolved.name + f".rambo-bak-{uuid4().hex[:10]}")

@@ -368,11 +368,18 @@ def classify_user_prompt(prompt: str) -> str:
     Rueckgabe: chat | project_read | project_task | risky_project_task | unknown
     Reihenfolge: riskant zuerst, dann Änderungsabsicht (project_task), dann reine Lese-/Analyseauftraege (project_read).
     """
-    intent = classify_user_prompt_intent(prompt)
+    # Primäre Klassifikation über LLM-Intent (vor allen weiteren Checks)
+    llm_intent = _classify_intent_with_llm(prompt)
+    if llm_intent == "analysis":
+        intent = "analysis_request"
+    elif llm_intent == "change":
+        intent = "coding_task"
+    else:
+        intent = classify_user_prompt_intent(prompt)
     if intent == "risky_task":
         return "risky_project_task"
     if intent == "analysis_request":
-        return "project_task"
+        return "project_read"
     if has_project_change_intent(prompt):
         return "project_task"
     if intent == "chat_question":

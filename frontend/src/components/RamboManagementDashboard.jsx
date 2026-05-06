@@ -30,8 +30,8 @@ async function fetchJson(url, headers = {}) {
 
 /** Backend liefert `healthy`; ältere Clients erwarteten `ok`. */
 function isHealthOnline(body) {
-  const s = body && typeof body === 'object' ? body.status : null;
-  return s === 'ok' || s === 'healthy';
+  const s = body && typeof body === 'object' ? String(body.status || '').toLowerCase() : '';
+  return s === 'ok' || s === 'healthy' || s === 'backend_ok';
 }
 
 function totalRulesFromSummary(s) {

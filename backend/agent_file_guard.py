@@ -159,6 +159,16 @@ def validate_write_payload(
             "Schreibabweisung: Inhalt sieht nach komplettem Auftrags-/Prompt-Text aus (Regel 3). "
             "Bitte nur Zielcode oder Patch liefern."
         )
+    if looks_like_instruction_instead_of_code(prop):
+        return False, (
+            "Schreibabweisung: Inhalt sieht nach Auftrags-/Anweisungstext statt Dateiinhalt aus. "
+            "Bitte echten Code/Dateiinhalt oder einen Patch liefern."
+        )
+    if had_file and looks_like_code_file_downgrade_to_plain_text(resolved, previous, prop):
+        return False, (
+            "Schreibabweisung: Bestehende Code-Datei wuerde durch Nicht-Code/Prompt-Text ersetzt. "
+            "Bitte nur gezielte Codeaenderungen oder Patch anwenden."
+        )
     if had_file and is_protected_existing_write(resolved):
         prev = previous or ""
         if len(prev) >= PROTECTED_EXISTING_MIN_CHARS and not _looks_like_patch_or_small_edit(
@@ -190,6 +200,71 @@ def looks_like_full_prompt_dump(text: str) -> bool:
     if hits >= 3:
         return True
     if ("\"task\"" in head or "'task'" in head) and "prompt" in head:
+        return True
+    return False
+
+
+def looks_like_instruction_instead_of_code(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return False
+    head = t[:600].lower()
+    strong_markers = (
+        "aufgabe:",
+        "entferne in ",
+        "nur ausblenden",
+        "nicht löschen",
+        "nicht löschen.",
+        "bitte ändere",
+        "bitte aendere",
+    )
+    marker_hits = sum(1 for m in strong_markers if m in head)
+    has_file_path = ("frontend/" in head or "backend/" in head) and (".jsx" in head or ".py" in head or ".js" in head or ".css" in head)
+    code_signals = ("import " in head or "export default" in head or "function " in head or "class " in head or "<div" in head)
+    if marker_hits >= 2 and has_file_path and not code_signals:
+        return True
+    if t.count("\n") <= 2 and marker_hits >= 1 and has_file_path and not code_signals:
+        return True
+    return False
+
+
+def _looks_like_code_blob(text: str) -> bool:
+    t = (text or "").lower()
+    if not t.strip():
+        return False
+    signals = (
+        "import ",
+        "export ",
+        "function ",
+        "const ",
+        "let ",
+        "class ",
+        "return ",
+        "=>",
+        "{",
+        "}",
+    )
+    hits = sum(1 for s in signals if s in t)
+    return hits >= 4
+
+
+def looks_like_code_file_downgrade_to_plain_text(resolved: Path, previous: str | None, proposed: str) -> bool:
+    ext = resolved.suffix.lower()
+    if ext not in {".js", ".jsx", ".ts", ".tsx", ".py", ".css", ".html"}:
+        return False
+    prev = previous or ""
+    prop = proposed or ""
+    if len(prev.strip()) < 40:
+        return False
+    if not _looks_like_code_blob(prev):
+        return False
+    if _looks_like_code_blob(prop):
+        return False
+    low = prop.strip().lower()
+    if low.startswith("aufgabe:") or low.startswith("erstellt:") or "schritte:" in low or "notizen:" in low:
+        return True
+    # auch ohne Marker: sehr kurzer Freitext statt Code in bestehender Code-Datei blocken
+    if len(prop.strip()) < 800 and "\n" in prop and (";" not in prop and "{" not in prop and "}" not in prop):
         return True
     return False
 

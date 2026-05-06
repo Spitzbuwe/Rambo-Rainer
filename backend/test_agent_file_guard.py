@@ -4,7 +4,9 @@ from pathlib import Path
 
 from agent_file_guard import (
     extract_relative_path_from_zielordner_block,
+    looks_like_code_file_downgrade_to_plain_text,
     looks_like_full_prompt_dump,
+    looks_like_instruction_instead_of_code,
 )
 from write_action import execute_write_action
 
@@ -64,3 +66,17 @@ def test_small_write_to_data_unblocked(tmp_path):
     r = execute_write_action(p, "ok", "data/note.txt", backup=True)
     assert r.get("ok") is True
     assert p.read_text(encoding="utf-8") == "ok"
+
+
+def test_instruction_text_detected():
+    txt = (
+        "Aufgabe: Entferne in frontend/src/components/TopNavigation.jsx die Buttons "
+        "\"Datei-Generator\" und \"Design Studio\" — nur ausblenden, nicht löschen."
+    )
+    assert looks_like_instruction_instead_of_code(txt) is True
+
+
+def test_code_file_downgrade_detected():
+    prev = 'import React from "react";\nexport default function A(){ return <div/> }\n'
+    prop = "Aufgabe: bitte ändere frontend/src/components/A.jsx"
+    assert looks_like_code_file_downgrade_to_plain_text(Path("frontend/src/components/A.jsx"), prev, prop) is True

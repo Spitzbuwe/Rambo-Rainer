@@ -59,8 +59,8 @@ def _load_dotenv_files():
 _ENV_LOADED, _ENV_PATH = _load_dotenv_files()
 BACKEND_PORT = int(os.environ.get("FLASK_PORT", os.environ.get("BACKEND_PORT", "5002")))
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
-OLLAMA_MODEL_TURBO = os.environ.get("OLLAMA_MODEL_TURBO", "llama3.2:latest")
-OLLAMA_MODEL_BRAIN = os.environ.get("OLLAMA_MODEL_BRAIN", "deepseek-r1:8b")
+OLLAMA_MODEL_TURBO = os.environ.get("OLLAMA_MODEL_TURBO", "llama-3.3-70b-versatile")
+OLLAMA_MODEL_BRAIN = os.environ.get("OLLAMA_MODEL_BRAIN", "llama-3.3-70b-versatile")
 
 
 def _ollama_host_from_env():
@@ -106,6 +106,12 @@ TOOLS_DIR = os.path.join(BASE_DIR, "tools")
 os.makedirs(TOOLS_DIR, exist_ok=True)
 ALLOWED_EDIT_ROOTS = [BASE_DIR, DASHBOARD_DIR]
 CODE_ACTIVITY = []
+try:
+    from agent_workspace_sandbox import WorkspaceSandbox
+except Exception:
+    WorkspaceSandbox = None
+
+WORKSPACE_SANDBOX = WorkspaceSandbox(BASE_DIR) if WorkspaceSandbox is not None else None
 
 
 def _resolved_path_under_base(rel_path: str, base_path: str):
@@ -14709,6 +14715,35 @@ try:
 except Exception as _ws_init_exc:
     _log_backend("warning", f"Socket.IO Init: {_ws_init_exc}")
     rambo_socketio = None
+
+
+@app.route("/api/workspaces/add", methods=["POST"])
+def workspaces_add_endpoint():
+    if WORKSPACE_SANDBOX is None:
+        return jsonify({"ok": False, "error": "workspace_sandbox_unavailable"}), 503
+    out = WORKSPACE_SANDBOX.add_allowed_workspace(str((request.get_json(silent=True) or {}).get("path") or ""))
+    return jsonify(out), (200 if out.get("ok") else 400)
+
+
+@app.route("/api/workspaces/select-with-consent", methods=["POST"])
+def workspaces_select_with_consent_endpoint():
+    if WORKSPACE_SANDBOX is None:
+        return jsonify({"ok": False, "error": "workspace_sandbox_unavailable"}), 503
+    data = request.get_json(silent=True) or {}
+    target = str(data.get("path_or_id") or data.get("id") or data.get("path") or "").strip()
+    if not target:
+        return jsonify({"ok": False, "error": "path_or_id_required"}), 400
+    sel = WORKSPACE_SANDBOX.select_workspace(target)
+    if not sel.get("ok"):
+        return jsonify(sel), 400
+    decision = str(data.get("decision") or "").strip().lower()
+    if decision not in {"yes", "no"}:
+        return jsonify({"ok": True, "status": "confirmation_required", "active": sel.get("active") or {}}), 200
+    trusted = decision == "yes"
+    out = WORKSPACE_SANDBOX.set_trusted(target, trusted)
+    if not out.get("ok"):
+        return jsonify(out), 400
+    return jsonify({**out, "status": "trusted_enabled" if trusted else "trusted_denied", "full_access": bool(trusted)}), 200
 
 if __name__ == "__main__":
     _flask_debug = os.environ.get("FLASK_DEBUG", "").strip().lower() in ("1", "true", "yes")

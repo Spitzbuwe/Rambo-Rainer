@@ -337,6 +337,7 @@ LOCAL_DEV_PATH_PREFIXES = (
 
 def _pick_best_ollama_model() -> str:
     preferred = [
+        "llama-3.3-70b-versatile",
         "gemma3:12b-it-qat",
         "gemma3:12b",
         "qwen2.5-coder:latest",
@@ -352,10 +353,10 @@ def _pick_best_ollama_model() -> str:
                     return model
     except Exception:
         pass
-    return "qwen2.5-coder:7b"
+    return "llama-3.3-70b-versatile"
 
 
-OLLAMA_MODEL = _pick_best_ollama_model()
+OLLAMA_MODEL = os.getenv("GROQ_MODEL", _pick_best_ollama_model())
 OLLAMA_FALLBACK_MODEL = os.getenv("OLLAMA_FALLBACK_MODEL", "qwen2.5-coder:3b")
 OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_TIMEOUT_SEC = int(os.getenv("OLLAMA_TIMEOUT_SEC", "60"))
@@ -1831,11 +1832,19 @@ def augment_prompt_with_uploads(task: str, data: dict) -> tuple[str, dict]:
             size = int(sp.stat().st_size)
         except OSError:
             size = 0
-        blocks.append(f"- Datei: {fname} ({ext or '—'}, {size} Bytes)\n  Server-Pfad: {sp}\n  Kurzinfo: {summary}")
+        blocks.append(f"- Upload-Kontext ({ext or '—'}, {size} Bytes)\n  Kurzinfo: {summary}")
         meta["uploads"].append({"filename": fname, "file_type": ext, "size": size, "saved_path": str(sp), "summary": summary})
     if not blocks:
         return str(task or ""), meta
-    appendix = "\n\n--- Hochgeladene Dateien (Kontext, keine Binaerdaten) ---\n" + "\n".join(blocks)
+    appendix = (
+        "\n\n--- Hochgeladene Dateien (Kontext, keine Binaerdaten) ---\n"
+        "WICHTIG:\n"
+        "- Diese Upload-Dateien sind nur Referenz-Kontext.\n"
+        "- Fuehre die konkrete Nutzeranweisung aus.\n"
+        "- Nicht versuchen, Upload-Dateien selbst zu bearbeiten/verschieben/umzubenennen.\n"
+        "- Keine Dateioperation auf Upload-Dateien planen.\n"
+        + "\n".join(blocks)
+    )
     return (str(task or "").rstrip() + appendix), meta
 
 
@@ -2580,7 +2589,12 @@ def validate_project_write_path(rel_path):
     for pattern in SENSITIVE_PATTERNS:
         if pattern in cleaned:
             return None, cleaned, f"Schreiben blockiert: Datei enthaelt sensibles Muster '{pattern}'."
-    if not any(cleaned.startswith(prefix) for prefix in ALLOWED_PROJECT_WRITE_PREFIXES):
+    trusted_workspace = False
+    try:
+        trusted_workspace = bool(is_active_workspace_trusted())
+    except Exception:
+        trusted_workspace = False
+    if (not trusted_workspace) and (not any(cleaned.startswith(prefix) for prefix in ALLOWED_PROJECT_WRITE_PREFIXES)):
         return None, cleaned, (
             f"'{cleaned}' liegt nicht in einem freigegebenen Bereich. "
             f"Erlaubt: {', '.join(ALLOWED_PROJECT_WRITE_PREFIXES[:5])} ..."
@@ -3941,6 +3955,19 @@ def refine_local_source_for_editing_task(current_content, relative_path, task, f
     if not any(k in tl for k in edit_kw):
         return None
     rel = format_local_path(relative_path).lower()
+    # Spezifische stabile UI-Edits fuer TopNavigation
+    if rel.endswith("frontend/src/components/topnavigation.jsx"):
+        src = current_content
+        tl2 = str(task or "").lower()
+        wants_hide_generator = ("datei-generator" in tl2 or "datei generator" in tl2)
+        wants_hide_studio = ("design studio" in tl2)
+        if wants_hide_generator:
+            src = _ensure_button_hidden_by_title(src, "Dokumente und Designs generieren")
+        if wants_hide_studio:
+            src = _ensure_button_hidden_by_title(src, "Design Studio mit Chat & Canvas")
+        if src != current_content:
+            return src
+        return current_content
     if not rel.endswith("frontend/app.js"):
         return None
     src = current_content
@@ -3956,6 +3983,62 @@ def refine_local_source_for_editing_task(current_content, relative_path, task, f
             src = src.replace(old, new)
     if src != current_content:
         return src
+    return None
+
+
+def _ensure_button_hidden_by_title(src: str, title_text: str) -> str:
+    lines = src.splitlines()
+    out = []
+    i = 0
+    changed = False
+    while i < len(lines):
+        ln = lines[i]
+        if "<button" in ln:
+            block = [ln]
+            j = i + 1
+            while j < len(lines):
+                block.append(lines[j])
+                if "</button>" in lines[j]:
+                    break
+                j += 1
+            block_txt = "\n".join(block)
+            if title_text in block_txt:
+                if "style={{ display: \"none\" }}" not in block_txt:
+                    inserted = False
+                    new_block = []
+                    for b in block:
+                        new_block.append(b)
+                        if (not inserted) and ('title="' in b or "title='" in b):
+                            indent = re.match(r"^(\s*)", b).group(1)
+                            new_block.append(f'{indent}style={{ display: "none" }}')
+                            inserted = True
+                    if not inserted:
+                        indent = re.match(r"^(\s*)", block[0]).group(1) + "  "
+                        new_block.insert(1, f'{indent}style={{ display: "none" }}')
+                    block = new_block
+                    changed = True
+                out.extend(block)
+                i = j + 1
+                continue
+            out.extend(block)
+            i = j + 1
+            continue
+        out.append(ln)
+        i += 1
+    return "\n".join(out) + ("\n" if src.endswith("\n") else "")
+
+
+def _apply_explicit_ui_ops_for_known_files(current_content: str, relative_path: str, task: str) -> str | None:
+    rel = format_local_path(relative_path).lower()
+    tl = str(task or "").lower()
+    if rel.endswith("frontend/src/components/topnavigation.jsx"):
+        out = current_content
+        if ("datei-generator" in tl) or ("datei generator" in tl):
+            out = _ensure_button_hidden_by_title(out, "Dokumente und Designs generieren")
+        if "design studio" in tl:
+            out = _ensure_button_hidden_by_title(out, "Design Studio mit Chat & Canvas")
+        if out != current_content:
+            return out
     return None
 
 
@@ -4086,16 +4169,24 @@ def resolve_proposed_content_for_local_task(task, target_path, current_content, 
     lit = extract_literal_write_body(task)
     if lit is not None:
         return lit
+    explicit_ui = _apply_explicit_ui_ops_for_known_files(str(current_content or ""), rel, task)
+    if explicit_ui is not None:
+        return explicit_ui
     refined = refine_local_source_for_editing_task(current_content, rel, task, file_exists)
     if refined is not None:
         return refined
-    if (
-        extract_explicit_local_relative_path(task)
-        and file_exists
-        and rel.lower().endswith("frontend/app.js")
-    ):
-        return current_content
-    return generate_content_from_task(task, target_path or rel)
+    explicit_rel = extract_explicit_local_relative_path(task)
+    if explicit_rel and file_exists:
+        code_exts = (".js", ".jsx", ".ts", ".tsx", ".py", ".css", ".html")
+        if rel.lower().endswith(code_exts):
+            # Bei expliziten Code-Dateien niemals Task-Stub als Vollersatz erzeugen.
+            return current_content
+    generated = generate_content_from_task(task, target_path or rel)
+    if file_exists and rel.lower().endswith((".js", ".jsx", ".ts", ".tsx", ".py", ".css", ".html")):
+        g_low = str(generated or "").strip().lower()
+        if g_low.startswith("aufgabe:") or g_low.startswith("erstellt:") or "schritte:" in g_low:
+            return current_content
+    return generated
 
 
 def _is_agent_instruction_prompt(task: str) -> bool:
@@ -4182,6 +4273,18 @@ def infer_target_path(task):
 
 def infer_project_target_path(task, suggestions=None):
     suggestions = suggestions or {}
+    task_low = str(task or "").lower()
+    smart_targets = [
+        (("topnavigation", "datei-generator"), "frontend/src/components/TopNavigation.jsx"),
+        (("topnavigation", "design studio"), "frontend/src/components/TopNavigation.jsx"),
+        (("raineragent", "upload"), "frontend/src/components/RainerAgent.jsx"),
+        (("dashboard", "offline"), "frontend/src/components/RamboManagementDashboard.jsx"),
+    ]
+    for needles, target in smart_targets:
+        if all(n in task_low for n in needles):
+            _, cleaned, error = validate_project_write_path(target)
+            if not error:
+                return cleaned
     expl = extract_explicit_local_relative_path(task)
     if expl:
         _, cleaned, error = validate_project_write_path(expl)
@@ -6975,6 +7078,31 @@ def build_project_direct_preview(task, mode):
     })
 
     resolved, cleaned, guard_error = validate_project_write_path(selected_target)
+    if guard_error:
+        # Auto-Recovery (1x): bei Guard-Block alternative Zielpfade testen, statt sofort abzubrechen.
+        retry_candidates: list[str] = []
+        retry_candidates.extend(
+            str(item.get("path") or "").strip()
+            for item in (suggestions.get("prioritized_targets") or [])
+            if isinstance(item, dict) and str(item.get("path") or "").strip()
+        )
+        retry_candidates.extend(
+            str(item.get("example_path") or "").strip()
+            for item in (suggestions.get("area_suggestions") or [])
+            if isinstance(item, dict) and str(item.get("example_path") or "").strip()
+        )
+        retry_candidates.append(infer_project_target_path(task, suggestions))
+        seen_retry: set[str] = set()
+        for cand in retry_candidates:
+            c = format_local_path(cand or "")
+            if not c or c in seen_retry:
+                continue
+            seen_retry.add(c)
+            r2, c2, e2 = validate_project_write_path(c)
+            if not e2:
+                resolved, cleaned, guard_error = r2, c2, None
+                steps.append({"label": "Auto-Recovery", "status": "ok", "detail": f"Alternativer Zielpfad: {c2}"})
+                break
     if guard_error:
         guard_result = {
             "allowed": False,
@@ -12793,7 +12921,12 @@ def project_guard_check():
                 "path": cleaned
             })
 
-    allowed_write = any(cleaned.startswith(p) for p in ALLOWED_PROJECT_WRITE_PREFIXES)
+    trusted_workspace = False
+    try:
+        trusted_workspace = bool(is_active_workspace_trusted())
+    except Exception:
+        trusted_workspace = False
+    allowed_write = trusted_workspace or any(cleaned.startswith(p) for p in ALLOWED_PROJECT_WRITE_PREFIXES)
     if not allowed_write:
         append_ui_log_entry("Projekt", f"Guard blockiert: '{cleaned}' (nicht freigegeben)", "warning")
         return jsonify({
@@ -14840,6 +14973,19 @@ def direct_run():
         return jsonify(ps_env), 200
 
     pk = classify_user_prompt(cleaned_prompt)
+    # Analyse-Prompts hart auf Read-Only routen (kein Auto-Datei-Template).
+    analysis_markers = (
+        "analysiere",
+        "analyse",
+        "gib mir verbesserungs",
+        "verbesserungsvorschl",
+        "bewerte den ordner",
+        "prüfe den ordner",
+        "pruefe den ordner",
+    )
+    low_prompt = cleaned_prompt.lower()
+    if any(m in low_prompt for m in analysis_markers) and not has_project_change_intent(cleaned_prompt):
+        pk = "project_read"
     # Absicherung: Änderungsabsicht nie als reiner Chat (auch bei veralteter Klassifikation)
     if pk != "risky_project_task" and has_project_change_intent(cleaned_prompt):
         pk = "project_task"
@@ -15607,7 +15753,10 @@ def direct_run():
         payload = _enforce_real_change_success(task, payload, mode="apply")
         return jsonify(enrich_direct_run_response(payload))
 
-    super_builder = build_super_builder_result(task)
+    explicit_rel = extract_explicit_local_relative_path(task) or ""
+    _task_low_explicit = str(task or "").lower()
+    explicit_file_edit = bool(explicit_rel.strip()) or ("frontend/" in _task_low_explicit) or ("backend/" in _task_low_explicit)
+    super_builder = {"executed": False, "reason": "explicit_file_edit_route"} if explicit_file_edit else build_super_builder_result(task)
 
     clear_pending_direct_run()
     reset_ephemeral_control_state_for_new_direct_task()
@@ -15638,6 +15787,8 @@ def direct_run():
         append_ui_log_entry("Routing-Etappe1", "Etappe-1-Routing uebersprungen: " + str(ex), "warning")
     preview = build_direct_preview(scope, task, mode)
     payload = preview["payload"]
+    if explicit_file_edit and isinstance(payload, dict):
+        payload.pop("super_builder", None)
     if ws_ok and len(inferred_allowed_targets) > 1:
         payload["route_mode"] = "project_change"
         payload.setdefault("classification", "project_task")
@@ -15684,7 +15835,7 @@ def direct_run():
         return jsonify(enrich_direct_run_response(blocked_payload)), 403
     payload = _merge_direct_file_context(payload, payload)
     payload["run_id"] = run_id
-    payload["super_builder"] = super_builder
+    # super_builder nicht mehr im direct-run Response ausgeben
     # WICHTIG: Bei auto_apply/direkt_execute sofort ausführen ohne Bestätigung
     is_auto_run = auto_apply_req or mode == "apply"
     payload["requires_user_confirmation"] = False if is_auto_run else payload.get("requires_user_confirmation", False)
@@ -15826,7 +15977,6 @@ def direct_run():
             body = _enforce_real_change_success(task, body, mode="apply")
             body = {
                 **body,
-                "super_builder": super_builder,
                 "requires_confirmation": False,
                 "requires_user_confirmation": False,
                 "requires_qa_sign_off": False,
@@ -15835,14 +15985,13 @@ def direct_run():
                 "acceptance_status": "approved",
             }
             return jsonify(enrich_direct_run_response(body)), status_code
-        return jsonify(enrich_direct_run_response({"error": str(body), "super_builder": super_builder})), status_code
+        return jsonify(enrich_direct_run_response({"error": str(body)})), status_code
     try:
         raw = result.get_json(silent=True)
         if isinstance(raw, dict):
             code = getattr(result, "status_code", None) or 200
             raw = _merge_direct_file_context(raw, payload)
             raw = _enforce_real_change_success(task, raw, mode="apply")
-            raw["super_builder"] = super_builder
             raw["requires_confirmation"] = False
             raw["requires_user_confirmation"] = False
             raw["requires_qa_sign_off"] = False
@@ -15852,7 +16001,8 @@ def direct_run():
             return jsonify(enrich_direct_run_response(raw)), code
     except Exception:
         pass
-    return jsonify(enrich_direct_run_response({**payload, "super_builder": super_builder}))
+    final_payload = dict(payload)
+    return jsonify(enrich_direct_run_response(final_payload))
 
 
 @app.route("/api/direct-confirm", methods=["POST"])
@@ -17837,6 +17987,51 @@ def workspaces_select_endpoint():
             )
     code = 200 if out.get("ok") else 400
     return jsonify(out), code
+
+
+@app.route("/api/workspaces/select-with-consent", methods=["POST"])
+def workspaces_select_with_consent_endpoint():
+    """
+    Waehlt einen Projektordner und verarbeitet danach eine explizite Ja/Nein-Freigabe:
+    - Entscheidung fehlt  -> confirmation_required
+    - decision == "yes"   -> trusted=True (voller Zugriff im aktiven Workspace)
+    - decision == "no"    -> trusted=False
+    """
+    data = request.get_json(silent=True) or {}
+    target = str(data.get("path_or_id") or data.get("id") or data.get("path") or "").strip()
+    if not target:
+        return jsonify({"ok": False, "error": "path_or_id_required"}), 400
+
+    sel = WORKSPACE_SANDBOX.select_workspace(target)
+    if not sel.get("ok"):
+        return jsonify(sel), 400
+
+    decision = str(data.get("decision") or "").strip().lower()
+    if decision not in {"yes", "no"}:
+        return jsonify(
+            {
+                "ok": True,
+                "status": "confirmation_required",
+                "confirmation": {
+                    "question": "Vollen Zugriff auf den gewaehlten Projektordner erlauben?",
+                    "options": ["yes", "no"],
+                },
+                "active": sel.get("active") or {},
+            }
+        ), 200
+
+    trusted = decision == "yes"
+    out = WORKSPACE_SANDBOX.set_trusted(target, trusted)
+    if not out.get("ok"):
+        return jsonify(out), 400
+    return jsonify(
+        {
+            **out,
+            "status": "trusted_enabled" if trusted else "trusted_denied",
+            "full_access": bool(trusted),
+            "agent_scope": "Agent arbeitet nur auf konkrete Nutzerauftraege.",
+        }
+    ), 200
 
 
 @app.route("/api/workspaces/trust", methods=["POST"])

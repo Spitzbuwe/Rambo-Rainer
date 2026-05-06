@@ -1,7 +1,7 @@
 const API_BASE =
   import.meta.env.DEV && !import.meta.env.VITE_API_BASE
     ? ""
-    : import.meta.env.VITE_API_BASE || "http://127.0.0.1:5001";
+    : import.meta.env.VITE_API_BASE || "http://127.0.0.1:5002";
 
 const ADMIN_TOKEN = import.meta.env.VITE_RAMBO_ADMIN_TOKEN || "Rambo-Admin-Token";
 

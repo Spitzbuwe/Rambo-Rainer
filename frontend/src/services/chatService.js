@@ -2,7 +2,7 @@
 const API_BASE =
   import.meta.env.DEV && !import.meta.env.VITE_API_BASE
     ? ""
-    : import.meta.env.VITE_API_BASE || "http://127.0.0.1:5001";
+    : import.meta.env.VITE_API_BASE || "http://127.0.0.1:5002";
 
 function apiUrl(path) {
   const p = path.startsWith("/") ? path : `/${path}`;

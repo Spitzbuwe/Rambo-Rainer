@@ -261,6 +261,7 @@ def _call_ollama(prompt: str, system: str = "", model: str = "") -> str:
 def _pick_best_model() -> str:
     """Wählt das beste verfügbare Ollama-Modell."""
     preferred = [
+        "llama-3.3-70b-versatile",
         "gemma3:12b-it-qat",
         "gemma3:12b",
         "qwen2.5-coder:latest",
@@ -277,7 +278,7 @@ def _pick_best_model() -> str:
                     return name
     except Exception:
         pass
-    return "qwen2.5-coder:7b"
+    return "llama-3.3-70b-versatile"
 
 
 def _extract_steps_from_planner_response(text: str) -> Optional[list[str]]:

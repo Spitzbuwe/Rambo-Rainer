@@ -357,8 +357,15 @@ function buildCodingAgentPanelView(agentL4) {
 }
 
 function isBackendReachableLabel(label) {
-  const s = String(label || "");
-  return s === "Verbunden" || s === "Online";
+  const s = String(label || "").trim().toLowerCase();
+  return (
+    s === "verbunden" ||
+    s === "online" ||
+    s === "running" ||
+    s === "ok" ||
+    s === "healthy" ||
+    s === "backend_ok"
+  );
 }
 
 function App() {
@@ -562,12 +569,13 @@ function App() {
           setStatus((s) => ({ ...s, backend_status: "Ungültige API-Antwort" }));
           return;
         }
-        const apiSt = data?.status;
-        const live = apiSt === "running";
+        const apiStRaw = String(data?.status || "").trim().toLowerCase();
+        const backendOk = Boolean(data?.backend_ok);
+        const live = backendOk || apiStRaw === "running" || apiStRaw === "ok" || apiStRaw === "healthy" || apiStRaw === "backend_ok";
         const backendLabel = live
           ? "Verbunden"
-          : apiSt != null && apiSt !== ""
-            ? String(apiSt)
+          : apiStRaw
+            ? String(data?.status)
             : "Unbekannt";
         setStatus((s) => ({
           ...s,

@@ -152,6 +152,20 @@ def enrich_direct_run_response(payload: dict) -> dict:
     contract = infer_ui_mode_contract(base)
     merged = dict(base)
     merged.update(contract)
+    # Bei expliziten Datei-Edits (frontend/backend Pfad) kein super_builder-Metadatenblock.
+    try:
+        sel = str(merged.get("selected_target_path") or "").strip().lower()
+        explicit_file_edit = sel.startswith("frontend/") or sel.startswith("backend/")
+        if not explicit_file_edit:
+            fp = merged.get("file_plan")
+            if isinstance(fp, list):
+                explicit_file_edit = any(
+                    str(x or "").strip().lower().startswith(("frontend/", "backend/")) for x in fp
+                )
+        if explicit_file_edit:
+            merged.pop("super_builder", None)
+    except Exception:
+        pass
     return merged
 
 

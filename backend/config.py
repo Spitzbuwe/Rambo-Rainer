@@ -12,7 +12,7 @@ DEFAULTS = {
     "anthropic_api_key": "",
     "openai_api_key": "",
     "ollama_url": "http://localhost:11434",
-    "ollama_model": "gemma3:12b-it-qat",
+    "ollama_model": "llama-3.3-70b-versatile",
     "default_provider": "local",
     "max_parallel_tasks": 5,
     "log_level": "INFO",
