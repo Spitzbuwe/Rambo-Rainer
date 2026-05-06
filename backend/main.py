@@ -15681,6 +15681,7 @@ def direct_run():
         chat_analysis = ""
         afiles: list = []
         ok_a = False
+        err_msg = ""
         if AGENT_LOOP_AVAILABLE and AgentLoop is not None:
             try:
                 workspace_path = str(get_active_project_root().resolve())
@@ -15688,19 +15689,21 @@ def direct_run():
                 agent_o = AgentLoop(Path(workspace_path))
                 analysis_result = agent_o.run_analysis(task)
                 analysis_result = analysis_result if isinstance(analysis_result, dict) else {}
-                atext = str(analysis_result.get("analysis") or "").strip()
+                raw_analysis = str(analysis_result.get("analysis") or "").strip()
                 afiles = analysis_result.get("files") or []
                 if not isinstance(afiles, list):
                     afiles = []
-                if not atext and analysis_result.get("error"):
-                    atext = str(analysis_result.get("error") or "").strip()
-                ok_a = bool(analysis_result.get("ok")) and bool(atext)
-                chat_analysis = atext or ""
+                err_msg = str(analysis_result.get("error") or "").strip()
+                ok_a = bool(analysis_result.get("ok")) and bool(raw_analysis)
+                chat_analysis = raw_analysis
             except Exception as _pr_ex:
                 log_structured("project_read_agent_loop_error", error=str(_pr_ex))
                 append_ui_log_entry("Direkt", f"AgentLoop Analyse (project_read) Fehler: {_pr_ex}", "error")
 
         if not (chat_analysis or "").strip():
+            hint = ""
+            if err_msg:
+                hint = f"\n\n**Hinweis:** {err_msg}"
             analysis_text = (
                 "## Ziel\n"
                 f"{cleaned_prompt}\n\n"
@@ -15711,6 +15714,7 @@ def direct_run():
                 "- Keine (Read-Only Analyse)\n\n"
                 "## Status\n"
                 "- OK"
+                + hint
                 + upload_block
             )
             read_payload = {
@@ -15892,14 +15896,12 @@ def direct_run():
                     agent_o = AgentLoop(Path(workspace_path))
                     analysis_result = agent_o.run_analysis(task)
                     analysis_result = analysis_result if isinstance(analysis_result, dict) else {}
-                    atext = str(analysis_result.get("analysis") or "").strip()
+                    raw_analysis = str(analysis_result.get("analysis") or "").strip()
                     afiles = analysis_result.get("files") or []
                     if not isinstance(afiles, list):
                         afiles = []
-                    ok_a = bool(analysis_result.get("ok")) and bool(atext)
-                    if not atext and analysis_result.get("error"):
-                        atext = str(analysis_result.get("error") or "")
-                    chat_analysis = atext or "Keine Analyse-Antwort vom Modell."
+                    ok_a = bool(analysis_result.get("ok")) and bool(raw_analysis)
+                    chat_response = raw_analysis if raw_analysis else "Keine Analyse-Antwort vom Modell."
                     analysis_payload = {
                         "ok": ok_a,
                         "success": ok_a,
@@ -15912,11 +15914,11 @@ def direct_run():
                         "classification": "project_task",
                         "route_mode": "agent_analysis",
                         "ui_mode": "workspace_analysis",
-                        "chat_response": chat_analysis,
-                        "formatted_response": chat_analysis,
-                        "message": chat_analysis,
-                        "natural_message": chat_analysis,
-                        "analysis": atext,
+                        "chat_response": chat_response,
+                        "formatted_response": chat_response,
+                        "message": chat_response,
+                        "natural_message": chat_response,
+                        "analysis": raw_analysis,
                         "analysis_files": afiles,
                         "changed_files": [],
                         "affected_files": [],

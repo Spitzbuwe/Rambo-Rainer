@@ -214,6 +214,50 @@ def _find_relevant_files(workspace: Path, task: str, max_files: int = 10) -> lis
     return candidates[:max_files]
 
 
+def _extract_chat_completion_content(data: dict) -> str:
+    """Nur Modell-Text: choices[0].message.content (String oder multimodale Teile), kein Roh-JSON."""
+    if not isinstance(data, dict):
+        return ""
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+    ch0 = choices[0]
+    if not isinstance(ch0, dict):
+        return ""
+    msg = ch0.get("message")
+    if not isinstance(msg, dict):
+        return ""
+    content = msg.get("content")
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                if item.get("type") == "text":
+                    parts.append(str(item.get("text") or ""))
+                elif "text" in item:
+                    parts.append(str(item.get("text") or ""))
+            elif isinstance(item, str):
+                parts.append(item)
+        return "".join(parts).strip()
+    return str(content).strip()
+
+
+def _is_internal_llm_placeholder_text(text: str) -> bool:
+    """Keine internen Fehler-/Stub-Strings als Nutzer-Analyse ausliefern."""
+    t = str(text or "").strip()
+    if not t:
+        return False
+    if t.startswith("[LLM"):
+        return True
+    if t.lstrip().startswith("{") and '"error"' in t[:800]:
+        return True
+    return False
+
+
 def _call_groq(prompt: str, system: str = "") -> str:
     """Groq OpenAI-kompatible Chat-API; bei Fehler oder fehlendem Key leerer String."""
     key = (GROQ_API_KEY or "").strip()
@@ -244,13 +288,10 @@ def _call_groq(prompt: str, system: str = "") -> str:
             timeout=120,
         )
         r.raise_for_status()
-        data = r.json() or {}
-        choices = data.get("choices") or []
-        if not choices:
+        data = r.json()
+        if not isinstance(data, dict):
             return ""
-        msg = choices[0].get("message") or {}
-        text = str(msg.get("content") or "").strip()
-        return text
+        return _extract_chat_completion_content(data)
     except Exception:
         return ""
 
@@ -631,8 +672,21 @@ class AgentLoop:
         if not (answer or "").strip():
             answer = _call_ollama(prompt, AGENT_SYSTEM_PROMPT, self.model)
         answer = (answer or "").strip()
-        ok = bool(answer)
-        return {"ok": ok, "analysis": answer, "files": file_list}
+        if _is_internal_llm_placeholder_text(answer):
+            return {
+                "ok": False,
+                "analysis": "",
+                "files": file_list,
+                "error": answer,
+            }
+        if not answer:
+            return {
+                "ok": False,
+                "analysis": "",
+                "files": file_list,
+                "error": "Keine Analyse-Antwort vom Modell.",
+            }
+        return {"ok": True, "analysis": answer, "files": file_list}
 
     def _file_context_limit(self, is_repair: bool) -> int:
         """Zeichen pro Datei: Repair mehr Kontext, normale Runs schlanker (weniger Tokens)."""
