@@ -21,6 +21,7 @@ try {
         backend/tests/test_image_generate.py `
         backend/tests/test_prompt_routing_phase1.py `
         backend/tests/test_agent_loop_instruction_guard.py `
+        backend/tests/test_direct_run_project_read.py `
         -q
     if ($LASTEXITCODE -ne 0) { $script:exitCode = 10; Write-ReportLine "pytest failed exit=$LASTEXITCODE" }
 } catch {

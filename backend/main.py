@@ -15589,9 +15589,8 @@ def direct_run():
         }
         return jsonify(enrich_direct_run_response(ws_payload)), 403
 
-    # Reine Analyse / Lesen — keine Vorschau-Patches, kein Agent-Loop-Apply
+    # Reine Analyse / Lesen — AgentLoop.run_analysis (read-only), kein Apply
     if pk == "project_read":
-        # Deterministischer Read-Only-Output ohne Chat-Greeting-Fallback.
         upload_lines = []
         for u in list((upload_ctx_meta or {}).get("uploads") or [])[:5]:
             if not isinstance(u, dict):
@@ -15606,44 +15605,116 @@ def direct_run():
             if upload_lines
             else ""
         )
-        analysis_text = (
-            "## Ziel\n"
-            f"{cleaned_prompt}\n\n"
-            "## Ergebnis\n"
-            "Read-Only Analysepfad aktiv. Es werden keine Dateien geändert.\n\n"
-            "## Dateiänderungen\n"
-            "- Keine (Read-Only Analyse)\n\n"
-            "## Status\n"
-            "- OK"
-            + upload_block
-        )
-        read_payload = {
-            "ok": True,
-            "success": True,
-            "applied": False,
-            "run_id": run_id,
-            "scope": scope,
-            "mode": "safe",
-            "status": "chat_response",
-            "direct_status": "chat_response",
-            "classification": "project_read",
-            "route_mode": "read_only_analysis",
-            "task_kind": "read_only_analysis",
-            "chat_response": analysis_text,
-            "formatted_response": analysis_text,
-            "message": analysis_text,
-            "natural_message": analysis_text,
-            "requires_confirmation": False,
-            "requires_user_confirmation": False,
-            "writes_files": False,
-            "has_changes": False,
-            "changed_files": [],
-            "files": [],
-            "ui_mode": "clean_chat",
-            "workstream_events": [
-                _ws_event("analysis", "info", "Nur-Analyse", "Klassifikation: Lesen — keine Dateiaenderung", status="done"),
-            ],
-        }
+        chat_analysis = ""
+        afiles: list = []
+        ok_a = False
+        if AGENT_LOOP_AVAILABLE and AgentLoop is not None:
+            try:
+                workspace_path = str(get_active_project_root().resolve())
+                append_ui_log_entry("Direkt", f"Analysemodus (AgentLoop, project_read): {task[:80]}", "info")
+                agent_o = AgentLoop(Path(workspace_path))
+                analysis_result = agent_o.run_analysis(task)
+                analysis_result = analysis_result if isinstance(analysis_result, dict) else {}
+                atext = str(analysis_result.get("analysis") or "").strip()
+                afiles = analysis_result.get("files") or []
+                if not isinstance(afiles, list):
+                    afiles = []
+                if not atext and analysis_result.get("error"):
+                    atext = str(analysis_result.get("error") or "").strip()
+                ok_a = bool(analysis_result.get("ok")) and bool(atext)
+                chat_analysis = atext or ""
+            except Exception as _pr_ex:
+                log_structured("project_read_agent_loop_error", error=str(_pr_ex))
+                append_ui_log_entry("Direkt", f"AgentLoop Analyse (project_read) Fehler: {_pr_ex}", "error")
+
+        if not (chat_analysis or "").strip():
+            analysis_text = (
+                "## Ziel\n"
+                f"{cleaned_prompt}\n\n"
+                "## Ergebnis\n"
+                "Read-Only Analysepfad aktiv. Es werden keine Dateien geändert.\n"
+                "(Keine Modell-Antwort — AgentLoop nicht verfügbar oder Analyse leer.)\n\n"
+                "## Dateiänderungen\n"
+                "- Keine (Read-Only Analyse)\n\n"
+                "## Status\n"
+                "- OK"
+                + upload_block
+            )
+            read_payload = {
+                "ok": True,
+                "success": True,
+                "applied": False,
+                "run_id": run_id,
+                "scope": scope,
+                "mode": "safe",
+                "status": "chat_response",
+                "direct_status": "chat_response",
+                "classification": "project_read",
+                "route_mode": "read_only_analysis",
+                "task_kind": "read_only_analysis",
+                "chat_response": analysis_text,
+                "formatted_response": analysis_text,
+                "message": analysis_text,
+                "natural_message": analysis_text,
+                "requires_confirmation": False,
+                "requires_user_confirmation": False,
+                "writes_files": False,
+                "has_changes": False,
+                "changed_files": [],
+                "files": [],
+                "analysis_files": [],
+                "ui_mode": "clean_chat",
+                "workstream_events": [
+                    _ws_event(
+                        "analysis",
+                        "info",
+                        "Nur-Analyse",
+                        "Klassifikation: Lesen — keine Dateiaenderung (Fallback)",
+                        status="done",
+                    ),
+                ],
+            }
+        else:
+            read_payload = {
+                "ok": ok_a,
+                "success": ok_a,
+                "applied": False,
+                "run_id": run_id,
+                "scope": scope,
+                "mode": mode,
+                "status": "chat_response",
+                "direct_status": "chat_response",
+                "classification": "project_read",
+                "route_mode": "agent_analysis",
+                "task_kind": "read_only_analysis",
+                "ui_mode": "workspace_analysis",
+                "chat_response": chat_analysis,
+                "formatted_response": chat_analysis,
+                "message": chat_analysis,
+                "natural_message": chat_analysis,
+                "analysis": chat_analysis,
+                "analysis_files": afiles,
+                "requires_confirmation": False,
+                "requires_user_confirmation": False,
+                "writes_files": False,
+                "has_changes": False,
+                "changed_files": [],
+                "affected_files": [],
+                "files": [],
+                "show_agent_ui": True,
+                "show_diff": False,
+                "workstream_events": [
+                    _ws_event(
+                        "analyze",
+                        "info",
+                        "Projekt-Analyse (Lesen)",
+                        f"{len(afiles)} Datei(en) eingebunden",
+                        status="done",
+                    ),
+                ],
+            }
+        if upload_ctx_meta.get("uploads") or upload_ctx_meta.get("errors"):
+            read_payload["upload_context"] = upload_ctx_meta
         return jsonify(enrich_direct_run_response(read_payload)), 200
 
     inferred_allowed_targets, target_infer_meta = infer_allowed_target_files_with_meta(task)
