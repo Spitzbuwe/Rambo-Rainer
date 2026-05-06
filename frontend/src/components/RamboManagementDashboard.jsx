@@ -8,7 +8,7 @@ function defaultApiBase() {
   if (typeof import.meta !== 'undefined' && import.meta.env?.DEV && !import.meta.env?.VITE_API_BASE) {
     return '';
   }
-  return 'http://127.0.0.1:5035';
+  return 'http://127.0.0.1:5002';
 }
 
 function defaultAdminToken() {
@@ -28,10 +28,9 @@ async function fetchJson(url, headers = {}) {
   return res.json();
 }
 
-/** Backend liefert `healthy`; ältere Clients erwarteten `ok`. */
 function isHealthOnline(body) {
   const s = body && typeof body === 'object' ? String(body.status || '').toLowerCase() : '';
-  return s === 'ok' || s === 'healthy' || s === 'backend_ok';
+  return s === 'backend_ok';
 }
 
 function totalRulesFromSummary(s) {
@@ -291,7 +290,7 @@ export function RamboManagementDashboard({
         <h2 className="rambo-mgmt__title">Rambo Management</h2>
         <div className="rambo-mgmt__actions">
           <button type="button" className="rambo-mgmt__refresh" onClick={() => loadData()} disabled={loading}>
-            Aktualisieren
+            Refresh
           </button>
         </div>
       </header>
@@ -305,12 +304,6 @@ export function RamboManagementDashboard({
         </div>
       ) : (
         <>
-          {loading && dataLoadedOnce ? (
-            <div className="rambo-mgmt__loading" style={{ padding: '12px 0', minHeight: 0 }} aria-live="polite">
-              <div className="rambo-mgmt__spinner" />
-              <span>Aktualisiere…</span>
-            </div>
-          ) : null}
           <div className="rambo-mgmt__grid">
             <HealthCard online={online} detail={health?.server_id} />
             <SummaryCard summary={summary} />
