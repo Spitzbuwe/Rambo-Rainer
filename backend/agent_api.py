@@ -18,7 +18,14 @@ from flask import Blueprint, Response, current_app, jsonify, request, stream_wit
 
 from agent_tasks import get_registry
 from model_providers import generate_chat_response, is_llm_failure_message
-from prompt_routing import chat_reply_canned, classify_user_prompt, has_project_change_intent, unknown_clarification_reply
+from prompt_routing import (
+    chat_reply_canned,
+    classify_user_prompt,
+    connectivity_diagnostics_reply,
+    has_project_change_intent,
+    should_route_direct_run_as_chat,
+    unknown_clarification_reply,
+)
 from intent_enrichment import (
     SUGGESTED_INTENT_ACTIONS,
     apply_user_mode_override,
@@ -56,7 +63,11 @@ def _formatting_chat_reply(task: str) -> str:
         reply = str(generate_chat_response(task) or "").strip()
     except Exception:
         reply = ""
-    if is_llm_failure_message(reply) or not reply:
+    if is_llm_failure_message(reply):
+        return reply
+    if not reply:
+        if should_route_direct_run_as_chat(task):
+            return connectivity_diagnostics_reply()
         return chat_reply_canned(task)
     return reply
 

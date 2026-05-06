@@ -3,7 +3,17 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
+import agent_api
 import main as m
+from prompt_routing import chat_reply_canned, connectivity_diagnostics_reply
+
+
+def test_chat_reply_canned_connectivity_not_generic():
+    text = chat_reply_canned("überprüfe warum die app offline ist")
+    assert text == connectivity_diagnostics_reply()
+    assert "Ich bin bereit. Stelle eine Frage" not in text
 
 
 def test_connectivity_fallback_for_ueberpruefe_offline():
@@ -18,3 +28,20 @@ def test_connectivity_fallback_irrelevant_prompt_empty():
 
 def test_effective_chat_timeout_extended_for_connectivity():
     assert m._effective_chat_timeout_sec("überprüfe warum die app offline ist", None) >= m._CONNECTIVITY_CHAT_TIMEOUT_SEC - 1
+
+
+def test_agent_formatting_preserves_llm_failure_not_canned():
+    err = (
+        "⚠️ Lokaler Provider [ollama] **Ollama** (Modell: m) nicht erreichbar oder Antwort ungueltig: x\n\n"
+        "Hinweis: Ollama starten"
+    )
+    with patch.object(agent_api, "generate_chat_response", return_value=err):
+        assert agent_api._formatting_chat_reply("hallo") == err
+        assert "Ich bin bereit. Stelle eine Frage" not in err
+
+
+def test_agent_formatting_empty_connectivity_checklist():
+    with patch.object(agent_api, "generate_chat_response", return_value=""):
+        out = agent_api._formatting_chat_reply("überprüfe warum die app offline ist")
+        assert "127.0.0.1" in out
+        assert "Ich bin bereit. Stelle eine Frage" not in out

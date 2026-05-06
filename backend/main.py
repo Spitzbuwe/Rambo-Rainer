@@ -80,6 +80,7 @@ from prompt_routing import (
     chat_reply_canned,
     classify_user_prompt,
     classify_user_prompt_intent,
+    connectivity_diagnostics_reply,
     extract_folder_analysis_path_from_prompt,
     has_project_change_intent,
     is_analysis_only_prompt,
@@ -993,14 +994,7 @@ def _connectivity_chat_fallback(task: str) -> str:
     """Wenn LLM leer ausfällt: konkrete Checkliste statt generischem chat_reply_canned."""
     if not should_route_direct_run_as_chat(str(task or "")):
         return ""
-    return (
-        "**App / Backend offline — typische Ursachen**\n\n"
-        "- **Backend:** Läuft der Flask-Server? Test: `GET http://127.0.0.1:5002/api/health` (oder dein Port).\n"
-        "- **Frontend:** Vite (`npm run dev`) auf Port **5173** — Proxy in `vite.config.js` muss auf dasselbe Backend zeigen.\n"
-        "- **Firewall / VPN:** `localhost` oder Port 5002 blockiert?\n"
-        "- **Zwei Instanzen:** Nur einen Backend-Prozess auf dem Port nutzen.\n\n"
-        "**Tipp:** Projektordner freigeben, dann kann ich zusätzlich Logs und Konfiguration im Workspace prüfen."
-    )
+    return connectivity_diagnostics_reply()
 
 
 def generate_chat_response_plain_with_timeout(task: str, timeout_sec: float | None = None) -> str:

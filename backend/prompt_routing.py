@@ -474,8 +474,22 @@ def classify_user_prompt(prompt: str) -> str:
     return "unknown"
 
 
+def connectivity_diagnostics_reply() -> str:
+    """Konkrete Checkliste bei Offline-/Verbindungsfragen (einheitlich für alle Fallback-Pfade)."""
+    return (
+        "**App / Backend offline — typische Ursachen**\n\n"
+        "- **Backend:** Läuft der Flask-Server? Test: `GET http://127.0.0.1:5002/api/health` (oder dein Port).\n"
+        "- **Frontend:** Vite (`npm run dev`) auf Port **5173** — Proxy in `vite.config.js` muss auf dasselbe Backend zeigen.\n"
+        "- **Firewall / VPN:** `localhost` oder Port 5002 blockiert?\n"
+        "- **Zwei Instanzen:** Nur einen Backend-Prozess auf dem Port nutzen.\n\n"
+        "**Tipp:** Projektordner freigeben, dann kann ich zusätzlich Logs und Konfiguration im Workspace prüfen."
+    )
+
+
 def chat_reply_canned(prompt: str) -> str:
     """Kurzantwort ohne LLM (Fallback)."""
+    if should_route_direct_run_as_chat(prompt):
+        return connectivity_diagnostics_reply()
     txt = str(prompt or "").strip().lower()
     if "wie geht" in txt:
         return "Mir geht's gut. Ich bin bereit und kann dir direkt helfen."
