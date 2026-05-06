@@ -3,7 +3,7 @@
 **Ziel:** Cursor/Codex-Qualität mit lokalem + Groq-Backend.
 
 **Dokument im Repo:** `docs/rainer_pro_entwicklungsplan.md`  
-**Letzte Aktualisierung:** 06.05.2026 (Stand Codebasis eingepflegt)
+**Letzte Aktualisierung:** 06.05.2026 — Phase 1.1 intelligent-run ↔ direct-run Hub
 
 ---
 
@@ -30,7 +30,7 @@
 
 | Phase | Inhalt |
 |--------|--------|
-| **1.1 Ein Pfad** | `direct-run` / `intelligent-run` / Builder konsequent auf **eine** Orchestrierung (z. B. immer `AgentLoop` nach Klassifikation) — größeres Refactoring in `main.py` |
+| **1.1 Ein Pfad** | *teilweise:* `/api/intelligent-run` → gleiche Pipeline wie `/api/direct-run` (interner Aufruf); Ausnahme `implementation: true` → weiterhin `execute_intelligent`. Builder/electron-Zweige weiterhin in `direct-run`. |
 | **2.x** | Session-Kontext, Multi-Datei-Plan, LLM-Dateiwahl, Analyse-Antwort immer als Chat-Text, Workspace strikt |
 | **3.x** | 3D-Designer produktiv, Office-Export, Git-UI, Terminal stabil |
 | **4.x** | E2E `tests/test_e2e_real_prompts.py` mit echten Nutzer-Prompts als CI-Gate; Smoke nach Start |
@@ -46,7 +46,7 @@ Ziel: Jeder Prompt landet zuverlässig beim richtigen Handler.
 - **Problem:** Mehrere parallele Pfade (direct-run, agent-loop, Builder).
 - **Lösung:** Zentral über `agent_loop.py` + Groq; `direct-run` → nach Klassifikation `AgentLoop.run` / `run_analysis` / Chat.
 - **Dateien:** `backend/main.py`, `backend/agent_loop.py`
-- **Status:** *teilweise* — Klassifikation und Loop verbessert; vollständige Vereinheitlichung der `main.py`-Zweige steht aus.
+- **Status:** *teilweise* — `intelligent-run` hub mit `direct-run`; optional Builder/Verschmelzung weiterer Zweige offen.
 
 ### 1.2 Prompt-Klassifikation via Groq
 

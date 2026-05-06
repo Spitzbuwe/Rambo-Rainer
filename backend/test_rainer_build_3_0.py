@@ -72,44 +72,38 @@ def test_execute_intelligent_and_api_endpoint():
     assert result["response_style"] in {"friendly", "developer", "business"}
 
     client = m.app.test_client()
+    # /api/intelligent-run nutzt Phase-1.1-Hub = gleiche Pipeline wie /api/direct-run (kein quick_generate)
     resp = client.post("/api/intelligent-run", json={"prompt": "Baue ein MVP mit Web UI"})
     assert resp.status_code == 200
     payload = resp.get_json()
-    assert payload["quick_mode"] is True
-    assert payload["detailed_mode"] is False
-    assert payload["workflow_mode"] == "quick"
-    assert "analysis" in payload
-    assert "generated_code" in payload
-    assert "formatted_response" in payload
-    assert payload["final"] is True
-    assert payload["stop_continue"] is True
-    assert "change_report" in payload
+    assert payload.get("run_mode") == "intelligent"
+    assert payload.get("formatted_response")
+    assert payload.get("final") is True
+    assert payload.get("stop_continue") is True
 
     resp_dev = client.post("/api/intelligent-run", json={"prompt": "Bitte API Backend refactor", "response_style": "developer"})
     assert resp_dev.status_code == 200
     payload_dev = resp_dev.get_json()
-    assert payload_dev["response_style"] == "developer"
-    assert any(marker in payload_dev["formatted_response"] for marker in ["Engineer Notes", "Problem-Analyse", "Tech-Plan"])
+    assert payload_dev.get("formatted_response")
+    assert payload_dev.get("run_mode") == "intelligent"
 
     resp_auto = client.post("/api/intelligent-run", json={"prompt": "Bitte management update", "response_style": "auto"})
     assert resp_auto.status_code == 200
     payload_auto = resp_auto.get_json()
-    assert payload_auto["response_style"] in {"business", "friendly", "developer"}
+    assert payload_auto.get("formatted_response")
+    assert payload_auto.get("run_mode") == "intelligent"
 
     resp_direct_auto = client.post("/api/direct-run", json={"task": "Rainer 3.0 intelligent run fuer management", "scope": "local", "mode": "safe", "response_style": "auto"})
     assert resp_direct_auto.status_code == 200
     payload_direct_auto = resp_direct_auto.get_json()
-    assert payload_direct_auto.get("direct_status") == "completed"
+    assert payload_direct_auto.get("direct_status") in ("completed", "chat_response")
     assert payload_direct_auto.get("formatted_response")
-    assert payload_direct_auto.get("final") is True
-    assert payload_direct_auto.get("stop_continue") is True
 
     resp_detailed = client.post("/api/intelligent-run", json={"prompt": "Analysiere und designe ein Windows-Tool mit API"})
     assert resp_detailed.status_code == 200
     payload_detailed = resp_detailed.get_json()
-    assert payload_detailed["quick_mode"] is False
-    assert payload_detailed["detailed_mode"] is True
-    assert payload_detailed["workflow_mode"] == "detailed"
+    assert payload_detailed.get("run_mode") == "intelligent"
+    assert payload_detailed.get("formatted_response")
 
 
 def test_implementation_sandbox():

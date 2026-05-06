@@ -9134,62 +9134,103 @@ def server_instance():
 
 @app.route("/api/intelligent-run", methods=["POST"])
 def intelligent_run():
+    """Phase 1.1: gleicher Ausführungspfad wie POST /api/direct-run (Klassifikation + Agent/Chat).
+
+    Ausnahme: ``implementation: true`` nutzt weiterhin ``execute_intelligent`` (Sandbox-Bundle).
+    """
+    import json as _json
+
     payload = request.get_json(silent=True) or {}
-    prompt = _extract_task_or_prompt_from_request_json(payload)
     response_style = str(payload.get("response_style") or "").strip().lower() or None
     uploaded_file_path = str(payload.get("uploaded_file_path") or "").strip() or None
     model = str(payload.get("model") or "").strip() or None
     if response_style == "auto":
         response_style = None
-    if not prompt:
+        payload["response_style"] = None
+    raw_prompt = _extract_task_or_prompt_from_request_json(payload)
+    if not raw_prompt:
         return jsonify({"error": "prompt oder task fehlt"}), 400
-    prompt, upload_ctx_meta = augment_prompt_with_uploads(prompt, payload)
-    cleaned_ir = " ".join(str(prompt or "").split())
-    ps_ir = _powershell_direct_run_envelope(
-        cleaned_prompt=cleaned_ir,
-        run_id=uuid4().hex,
-        scope="local",
-        mode="apply",
-        log_label="Intelligent",
-    )
-    if ps_ir is not None:
-        if upload_ctx_meta.get("uploads") or upload_ctx_meta.get("errors"):
-            ps_ir = {**(ps_ir if isinstance(ps_ir, dict) else {}), "upload_context": upload_ctx_meta}
-        return jsonify(ps_ir), 200
-    try:
-        result = execute_intelligent(
-            prompt,
-            {
-                "response_style": response_style,
-                "uploaded_file_path": uploaded_file_path,
-                "model": model,
-                "implementation": bool(payload.get("implementation")),
-                "upload_context": upload_ctx_meta,
-            },
-        )
-        result = _ensure_formatted_intelligent_response(result)
-        guarded = _apply_central_generation_guard(
-            result,
-            scope="project",
+
+    if bool(payload.get("implementation")):
+        prompt, upload_ctx_meta = augment_prompt_with_uploads(raw_prompt, payload)
+        cleaned_ir = " ".join(str(prompt or "").split())
+        ps_ir = _powershell_direct_run_envelope(
+            cleaned_prompt=cleaned_ir,
+            run_id=uuid4().hex,
+            scope="local",
             mode="apply",
-            task=prompt,
-            recognized_task=(result.get("recognized_task") if isinstance(result, dict) else None),
+            log_label="Intelligent",
         )
-        if isinstance(guarded, dict):
-            guarded["run_mode"] = "intelligent"
-            guarded["status"] = "blocked_by_guard"
+        if ps_ir is not None:
             if upload_ctx_meta.get("uploads") or upload_ctx_meta.get("errors"):
-                guarded["upload_context"] = upload_ctx_meta
-            return jsonify(enrich_direct_run_response(guarded)), 403
-        result["run_mode"] = "intelligent"
-        if result.get("ok") is True:
-            result["status"] = "ok"
-        result = _enforce_real_change_success(prompt, result, mode="apply")
-        if upload_ctx_meta.get("uploads") or upload_ctx_meta.get("errors"):
-            result["upload_context"] = upload_ctx_meta
-        if str(result.get("status") or "").strip().lower() == "target_path_unclear":
-            return jsonify(result), 400
-        return jsonify(result)
+                ps_ir = {**(ps_ir if isinstance(ps_ir, dict) else {}), "upload_context": upload_ctx_meta}
+            return jsonify(ps_ir), 200
+        try:
+            result = execute_intelligent(
+                prompt,
+                {
+                    "response_style": response_style,
+                    "uploaded_file_path": uploaded_file_path,
+                    "model": model,
+                    "implementation": True,
+                    "upload_context": upload_ctx_meta,
+                },
+            )
+            result = _ensure_formatted_intelligent_response(result)
+            guarded = _apply_central_generation_guard(
+                result,
+                scope="project",
+                mode="apply",
+                task=prompt,
+                recognized_task=(result.get("recognized_task") if isinstance(result, dict) else None),
+            )
+            if isinstance(guarded, dict):
+                guarded["run_mode"] = "intelligent"
+                guarded["status"] = "blocked_by_guard"
+                if upload_ctx_meta.get("uploads") or upload_ctx_meta.get("errors"):
+                    guarded["upload_context"] = upload_ctx_meta
+                return jsonify(enrich_direct_run_response(guarded)), 403
+            result["run_mode"] = "intelligent"
+            if result.get("ok") is True:
+                result["status"] = "ok"
+            result = _enforce_real_change_success(prompt, result, mode="apply")
+            if upload_ctx_meta.get("uploads") or upload_ctx_meta.get("errors"):
+                result["upload_context"] = upload_ctx_meta
+            if str(result.get("status") or "").strip().lower() == "target_path_unclear":
+                return jsonify(result), 400
+            return jsonify(result)
+        except Exception as ex:
+            tb = traceback.format_exc()
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": str(ex) or "Interner Fehler",
+                    "direct_status": "failed",
+                    "technical_message": tb[:4000],
+                    "workstream_events": [
+                        _ws_event("error", "error", "intelligent-run", str(ex)[:500], status="failed"),
+                    ],
+                }
+            ), 500
+
+    dr_payload = dict(payload)
+    _sc = str(dr_payload.get("scope") or "local").strip().lower()
+    dr_payload["scope"] = _sc if _sc in {"local", "project"} else "local"
+    _md = str(dr_payload.get("mode") or "apply").strip().lower()
+    dr_payload["mode"] = _md if _md in {"safe", "apply"} else "apply"
+    headers = [("Content-Type", "application/json; charset=utf-8")]
+    _adm = request.headers.get("X-Rambo-Admin")
+    if _adm:
+        headers.append(("X-Rambo-Admin", _adm))
+    try:
+        with app.test_request_context(
+            "/api/direct-run",
+            method="POST",
+            data=_json.dumps(dr_payload, ensure_ascii=False),
+            content_type="application/json; charset=utf-8",
+            headers=headers,
+        ):
+            out = direct_run()
     except Exception as ex:
         tb = traceback.format_exc()
         return jsonify(
@@ -9203,6 +9244,35 @@ def intelligent_run():
                 ],
             }
         ), 500
+
+    if isinstance(out, tuple) and len(out) >= 2:
+        resp_obj, status_code = out[0], int(out[1])
+    else:
+        resp_obj, status_code = out, 200
+    body = resp_obj.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "Antwort ungueltig.", "direct_status": "failed"}), 500
+    body["run_mode"] = "intelligent"
+    body.setdefault("final", True)
+    body.setdefault("stop_continue", True)
+    body = _ensure_formatted_intelligent_response(body)
+    task_guard = str(
+        dr_payload.get("task") or dr_payload.get("prompt") or dr_payload.get("message") or ""
+    ).strip()
+    guarded = _apply_central_generation_guard(
+        body,
+        scope="project",
+        mode="apply",
+        task=task_guard,
+        recognized_task=(body.get("recognized_task") if isinstance(body, dict) else None),
+    )
+    if isinstance(guarded, dict):
+        guarded["run_mode"] = "intelligent"
+        guarded["status"] = "blocked_by_guard"
+        return jsonify(enrich_direct_run_response(guarded)), 403
+    if str(body.get("status") or "").strip().lower() == "target_path_unclear":
+        return jsonify(body), 400
+    return jsonify(body), status_code
 
 
 def _analyze_uploaded_file(filepath: Path, ext: str) -> dict:
