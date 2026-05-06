@@ -24,6 +24,7 @@ try {
         backend/tests/test_direct_run_project_read.py `
         backend/tests/test_intelligent_run_hub.py `
         backend/tests/test_e2e_real_prompts.py `
+        backend/tests/test_connectivity_chat_fallback.py `
         -q
     if ($LASTEXITCODE -ne 0) { $script:exitCode = 10; Write-ReportLine "pytest failed exit=$LASTEXITCODE" }
 } catch {
