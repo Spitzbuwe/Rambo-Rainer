@@ -15284,6 +15284,17 @@ def direct_run():
             augmented_prompt,
             path_inference_source=cleaned_prompt,
         )
+        if "## Ziel" not in analysis_text:
+            analysis_text = (
+                "## Ziel\n"
+                f"{cleaned_prompt}\n\n"
+                "## Ergebnis\n"
+                f"{analysis_text}\n\n"
+                "## Dateiänderungen\n"
+                "- Keine (Read-Only Analyse)\n\n"
+                "## Status\n"
+                "- OK"
+            )
         read_payload = {
             "ok": True,
             "success": True,
