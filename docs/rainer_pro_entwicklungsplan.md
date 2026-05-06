@@ -25,12 +25,13 @@
 | **Phase 1.3 SUCHE-Recovery** | Bis zu `AGENT_SUCHE_REPAIR_ATTEMPTS` (Default 2) Groq-Neuauflage des SUCHE-Blocks (`agent_loop.py`) |
 | **Phase 1.4 Prompt-Guard im Loop** | Blockiert verdächtigen ERSETZE/<<NEU>>-Inhalt vor Write |
 | **MAX_REPAIR_ATTEMPTS** | Agent-Loop-Reparatur: 2 Versuche |
+| **Phase 1.1 (Teil)** | `POST /api/intelligent-run` → intern `direct_run()` (klassifiziert + Agent/Chat wie direct-run); Ausnahme `implementation: true` = `execute_intelligent` |
 
 ### Noch offen (Roadmap)
 
 | Phase | Inhalt |
 |--------|--------|
-| **1.1 Ein Pfad** | *teilweise:* `/api/intelligent-run` → gleiche Pipeline wie `/api/direct-run` (interner Aufruf); Ausnahme `implementation: true` → weiterhin `execute_intelligent`. Builder/electron-Zweige weiterhin in `direct-run`. |
+| **1.1 Ein Pfad** | *weiter:* ggf. Builder mit AgentLoop verzahnen, E2E-Gate (Phase 4) |
 | **2.x** | Session-Kontext, Multi-Datei-Plan, LLM-Dateiwahl, Analyse-Antwort immer als Chat-Text, Workspace strikt |
 | **3.x** | 3D-Designer produktiv, Office-Export, Git-UI, Terminal stabil |
 | **4.x** | E2E `tests/test_e2e_real_prompts.py` mit echten Nutzer-Prompts als CI-Gate; Smoke nach Start |
