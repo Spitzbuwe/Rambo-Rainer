@@ -23,13 +23,14 @@ export default function RainerAgent({ apiBase = "", adminToken = "", onClose }) 
   const [attachBusy, setAttachBusy] = useState(false);
   const [attachments, setAttachments] = useState([]);
 
-  const append = useCallback((role, text) => {
+  const append = useCallback((role, text, meta = null) => {
     setEntries((prev) => [
       ...prev,
       {
         id: `${Date.now()}-${prev.length}`,
         role,
         text: String(text ?? ""),
+        meta: meta && typeof meta === "object" ? meta : null,
         time: new Date().toLocaleTimeString(),
       },
     ]);
@@ -87,7 +88,17 @@ export default function RainerAgent({ apiBase = "", adminToken = "", onClose }) 
         data.analysis ||
         data.error ||
         (res.ok ? "OK (kein Textfeld in Antwort)" : `HTTP ${res.status}`);
-      append("assistant", msg);
+      const conf = data?.confidence_gate && typeof data.confidence_gate === "object" ? data.confidence_gate : null;
+      const checks = Array.isArray(data?.recommended_checks)
+        ? data.recommended_checks.map((x) => String(x || "").trim()).filter(Boolean)
+        : [];
+      const meta = {
+        confidenceLabel: String(conf?.confidence_label || "").trim(),
+        confidenceScore: Number.isFinite(Number(conf?.confidence_score)) ? Number(conf.confidence_score) : null,
+        verificationRequired: Boolean(data?.verification_required),
+        checks,
+      };
+      append("assistant", msg, meta);
     } catch (err) {
       append("assistant", `Fehler: ${err?.message ?? err}`);
     } finally {
@@ -200,6 +211,24 @@ export default function RainerAgent({ apiBase = "", adminToken = "", onClose }) 
                 {m.time} · {m.role === "user" ? "Du" : "Rainer"}
               </span>
               <pre className="rainer-agent-msg-body">{m.text}</pre>
+              {m.role === "assistant" && m.meta ? (
+                <div className="rainer-agent-meta">
+                  {(m.meta.confidenceLabel || m.meta.confidenceScore != null) ? (
+                    <div className="rainer-agent-meta-row">
+                      Confidence: {m.meta.confidenceLabel || "n/a"}
+                      {m.meta.confidenceScore != null ? ` (${m.meta.confidenceScore})` : ""}
+                    </div>
+                  ) : null}
+                  <div className="rainer-agent-meta-row">
+                    Verification: {m.meta.verificationRequired ? "erforderlich" : "optional"}
+                  </div>
+                  {Array.isArray(m.meta.checks) && m.meta.checks.length > 0 ? (
+                    <div className="rainer-agent-meta-row">
+                      Checks: {m.meta.checks.join(" | ")}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
