@@ -45,6 +45,21 @@ export default function RainerAgent({ apiBase = "", adminToken = "", onClose }) 
     return { label: "UNKLAR", okHits, failHits };
   }, []);
 
+  const confidenceTone = useCallback((label, score) => {
+    const l = String(label || "").toLowerCase();
+    const s = Number(score);
+    if (l === "high" || Number.isFinite(s) && s >= 80) return "ok";
+    if (l === "low" || Number.isFinite(s) && s < 50) return "bad";
+    return "warn";
+  }, []);
+
+  const checkTone = useCallback((status) => {
+    const s = String(status || "").toUpperCase();
+    if (s === "PASS") return "ok";
+    if (s === "FAIL") return "bad";
+    return "warn";
+  }, []);
+
   const runChecks = useCallback(
     async (checks, sourceEntryId = "") => {
       const list = Array.isArray(checks) ? checks.map((x) => String(x || "").trim()).filter(Boolean) : [];
@@ -297,7 +312,7 @@ export default function RainerAgent({ apiBase = "", adminToken = "", onClose }) 
               {m.role === "assistant" && m.meta ? (
                 <div className="rainer-agent-meta">
                   {(m.meta.confidenceLabel || m.meta.confidenceScore != null) ? (
-                    <div className="rainer-agent-meta-row">
+                    <div className={`rainer-agent-meta-row rainer-agent-meta-row--${confidenceTone(m.meta.confidenceLabel, m.meta.confidenceScore)}`}>
                       Confidence: {m.meta.confidenceLabel || "n/a"}
                       {m.meta.confidenceScore != null ? ` (${m.meta.confidenceScore})` : ""}
                     </div>
@@ -311,13 +326,13 @@ export default function RainerAgent({ apiBase = "", adminToken = "", onClose }) 
                     </div>
                   ) : null}
                   {m.meta.lastCheckStatus ? (
-                    <div className="rainer-agent-meta-row">
+                    <div className={`rainer-agent-meta-row rainer-agent-meta-row--${checkTone(m.meta.lastCheckStatus)}`}>
                       Letzter Check: {m.meta.lastCheckStatus}
                       {m.meta.lastCheckAt ? ` (${m.meta.lastCheckAt})` : ""}
                     </div>
                   ) : null}
                   {m.meta.checkRun && typeof m.meta.checkRun === "object" ? (
-                    <div className="rainer-agent-meta-row">
+                    <div className={`rainer-agent-meta-row rainer-agent-meta-row--${checkTone(m.meta.checkRun.status)}`}>
                       Check-Run: {String(m.meta.checkRun.status || "UNKLAR")}
                       {Number.isFinite(Number(m.meta.checkRun.okHits))
                         ? ` · ok=${Number(m.meta.checkRun.okHits)}`

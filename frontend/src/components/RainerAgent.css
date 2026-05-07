@@ -136,6 +136,18 @@
   line-height: 1.35;
 }
 
+.rainer-agent-meta-row--ok {
+  color: #a7f3d0;
+}
+
+.rainer-agent-meta-row--warn {
+  color: #fde68a;
+}
+
+.rainer-agent-meta-row--bad {
+  color: #fecaca;
+}
+
 .rainer-agent-checks-btn {
   margin-top: 0.35rem;
   background: rgba(16, 185, 129, 0.2);
