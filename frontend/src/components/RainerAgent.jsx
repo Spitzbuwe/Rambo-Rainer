@@ -36,6 +36,55 @@ export default function RainerAgent({ apiBase = "", adminToken = "", onClose }) 
     ]);
   }, []);
 
+  const runChecks = useCallback(
+    async (checks) => {
+      const list = Array.isArray(checks) ? checks.map((x) => String(x || "").trim()).filter(Boolean) : [];
+      if (list.length === 0 || busy) return;
+      setBusy(true);
+      append("user", `Starte empfohlene Checks:\n- ${list.join("\n- ")}`);
+      try {
+        const headers = { "Content-Type": "application/json" };
+        if (adminToken) headers["X-Rambo-Admin"] = adminToken;
+        const checkPrompt = [
+          "Führe ausschließlich diese Verifikations-Checks im Projekt aus und gib nur ein kompaktes Ergebnis zurück.",
+          "",
+          "Checks:",
+          ...list.map((c) => `- ${c}`),
+          "",
+          "Antwortformat:",
+          "- pro Check: OK/FAIL",
+          "- kurze Fehlerursache falls FAIL",
+          "- Abschluss: Gesamtstatus",
+        ].join("\n");
+        const res = await fetch(apiDirectRunUrl(apiBase), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            task: checkPrompt,
+            prompt: checkPrompt,
+            scope: "project",
+            mode: "safe",
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        const msg =
+          data.formatted_response ||
+          data.chat_response ||
+          data.natural_message ||
+          data.message ||
+          data.analysis ||
+          data.error ||
+          (res.ok ? "Checks ausgeführt (kein Textfeld in Antwort)." : `HTTP ${res.status}`);
+        append("assistant", msg);
+      } catch (err) {
+        append("assistant", `Check-Run fehlgeschlagen: ${err?.message ?? err}`);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, append, adminToken, apiBase]
+  );
+
   const send = useCallback(async () => {
     const t = prompt.trim();
     if ((!t && attachments.length === 0) || busy) return;
@@ -226,6 +275,16 @@ export default function RainerAgent({ apiBase = "", adminToken = "", onClose }) 
                     <div className="rainer-agent-meta-row">
                       Checks: {m.meta.checks.join(" | ")}
                     </div>
+                  ) : null}
+                  {Array.isArray(m.meta.checks) && m.meta.checks.length > 0 ? (
+                    <button
+                      type="button"
+                      className="rainer-agent-checks-btn"
+                      onClick={() => runChecks(m.meta.checks)}
+                      disabled={busy}
+                    >
+                      Checks ausführen
+                    </button>
                   ) : null}
                 </div>
               ) : null}
