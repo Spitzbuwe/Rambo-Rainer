@@ -405,6 +405,7 @@ function App() {
   const [modelMode, setModelMode] = useState("turbo");
   const [status, setStatus] = useState({
     backend_status: BACKEND_STATUS_PENDING,
+    ollama_ok: null,
     system_mode: "Lokal & Autark",
     rainer_core: "Aktiv",
     model: "Llama3",
@@ -613,6 +614,7 @@ function App() {
         setStatus((s) => ({
           ...s,
           backend_status: backendLabel,
+          ollama_ok: typeof data?.ollama_ok === "boolean" ? data.ollama_ok : s.ollama_ok,
           system_mode: String(data?.system_mode || s.system_mode),
           rainer_core: String(data?.rainer_core || s.rainer_core),
           model: String(data?.model || s.model),
@@ -1334,6 +1336,12 @@ function App() {
   const pageStatusLabel = isBackendReachableLabel(status.backend_status)
     ? "Status Bereit"
     : `Status ${status.backend_status}`;
+  const quickDiagLine =
+    status.ollama_ok === true
+      ? "Diagnose: Backend ok, Ollama ok"
+      : status.ollama_ok === false
+        ? "Diagnose: Backend ok, Ollama offline"
+        : "Diagnose: Ollama-Status unbekannt";
 
   const topNavActive = rainerAgentOpen
     ? "rainer"
@@ -1426,6 +1434,7 @@ function App() {
             <span className="dash-kv__k">Rainer-Core</span>
             <span className="dash-kv__v dash-kv__v--cyan">{status.rainer_core}</span>
           </div>
+          <p className="dash-hint">{quickDiagLine}</p>
           <div className="dash-mode">
             <button
               type="button"
