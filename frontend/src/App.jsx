@@ -27,6 +27,7 @@ const TT_HEAD_STATUS =
   "Quelle: GET /api/status (alle 10 s). Grün bei backend_ok oder status ok/running/healthy. „Nicht erreichbar“ = Netzwerk/Proxy/Backend nicht erreichbar — nicht Ollama.";
 const TT_PANEL_BACKEND =
   "Backend-Zeile = GET /api/status (wie Kopfzeile). „Verbunden“ = Poll erfolgreich. Verwechseln mit Rambo Health (/api/health) oder Ollama (Chat/Canvas).";
+const STATUS_SOURCE_NOTE = "Quelle: /api/status (10s Poll)";
 
 function apiUrl(pathOrQuery) {
   const p = pathOrQuery.startsWith("/") ? pathOrQuery : `/${pathOrQuery}`;
@@ -1416,6 +1417,7 @@ function App() {
               {status.backend_status}
             </span>
           </div>
+          <p className="dash-hint" title={TT_PANEL_BACKEND}>{STATUS_SOURCE_NOTE}</p>
           <div className="dash-kv">
             <span className="dash-kv__k">System</span>
             <span className="dash-kv__v">{status.system_mode}</span>

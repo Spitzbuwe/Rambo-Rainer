@@ -61,6 +61,7 @@ function historyLabel(entry) {
 
 const TT_HEALTH_CARD =
   'Rambo-Health: GET …/api/health (mit Dashboard-Basis-URL). Online nur wenn JSON.status „backend_ok“. Offline = Flask nicht erreichbar, falscher Port (Standard 5002) oder CORS bei direkt geöffneter index.html.';
+const HEALTH_SOURCE_NOTE = 'Quelle: /api/health (status=backend_ok)';
 
 export function HealthCard({ online, detail }) {
   const ok = Boolean(online);
@@ -74,6 +75,7 @@ export function HealthCard({ online, detail }) {
         <div>
           <strong>{ok ? 'Online' : 'Offline'}</strong>
           {detail ? <div className="rambo-mgmt-card__muted">{detail}</div> : null}
+          <div className="rambo-mgmt-card__muted">{HEALTH_SOURCE_NOTE}</div>
         </div>
       </div>
     </section>
