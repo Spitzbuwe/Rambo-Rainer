@@ -460,6 +460,13 @@ function App() {
   const [agentL4Logs, setAgentL4Logs] = useState([]);
   const [agentErrs, setAgentErrs] = useState([]);
   const [agentPats, setAgentPats] = useState([]);
+  const [qualityEval, setQualityEval] = useState({
+    loading: false,
+    avgScore: null,
+    totalCases: 0,
+    lastRunAt: "",
+    history: [],
+  });
   const chatRef = useRef(null);
   const prevBackendRef = useRef(null);
   const autopilotSyncedRef = useRef(false);
@@ -765,6 +772,51 @@ function App() {
       await refreshAgentL4State();
     }
   };
+
+  const runQualityEvalSuite = useCallback(async () => {
+    setQualityEval((s) => ({ ...s, loading: true }));
+    try {
+      const res = await apiFetch("/api/quality/eval-suite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await readJsonSafe(res);
+      const histRes = await apiFetch("/api/quality/eval-history?limit=5");
+      const hist = await readJsonSafe(histRes);
+      setQualityEval((s) => ({
+        ...s,
+        loading: false,
+        avgScore: Number.isFinite(Number(data?.avg_score)) ? Number(data.avg_score) : null,
+        totalCases: Number.isFinite(Number(data?.total_cases)) ? Number(data.total_cases) : 0,
+        lastRunAt: new Date().toLocaleTimeString(),
+        history: Array.isArray(hist?.entries) ? hist.entries : [],
+      }));
+    } catch {
+      setQualityEval((s) => ({ ...s, loading: false }));
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const histRes = await apiFetch("/api/quality/eval-history?limit=5");
+        const hist = await readJsonSafe(histRes);
+        if (!cancelled) {
+          setQualityEval((s) => ({ ...s, history: Array.isArray(hist?.entries) ? hist.entries : [] }));
+        }
+      } catch {
+        if (!cancelled) {
+          setQualityEval((s) => ({ ...s, history: [] }));
+        }
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const avatarStatus = useMemo(() => {
     if (!isBackendReachableLabel(status.backend_status)) return "error";
@@ -2026,6 +2078,41 @@ function App() {
           <div className="dash-kv">
             <span className="dash-kv__k">Memory</span>
             <span className="dash-kv__v">{learningStats.memoryHits}</span>
+          </div>
+        </div>
+
+        <div className="dash-panel">
+          <h3 className="dash-panel__title">Quality Eval</h3>
+          <div className="dash-kv">
+            <span className="dash-kv__k">Score</span>
+            <span className="dash-kv__v dash-kv__v--cyan">
+              {qualityEval.avgScore != null ? `${qualityEval.avgScore}%` : "—"}
+            </span>
+          </div>
+          <div className="dash-kv">
+            <span className="dash-kv__k">Cases</span>
+            <span className="dash-kv__v">{qualityEval.totalCases || "—"}</span>
+          </div>
+          <div className="dash-kv">
+            <span className="dash-kv__k">Last Run</span>
+            <span className="dash-kv__v">{qualityEval.lastRunAt || "—"}</span>
+          </div>
+          <button
+            type="button"
+            className="dash-btn dash-btn--block"
+            onClick={runQualityEvalSuite}
+            disabled={qualityEval.loading}
+          >
+            {qualityEval.loading ? "Läuft…" : "Suite ausführen"}
+          </button>
+          <div className="dash-sub">History</div>
+          <div className="dash-code dash-l4-runs dash-l4-runs--short">
+            {qualityEval.history.length === 0 && <div className="dash-code__line">—</div>}
+            {qualityEval.history.slice(0, 5).map((h, idx) => (
+              <div key={`qe-${idx}-${String(h?.timestamp || "")}`} className="dash-code__line">
+                {String(h?.timestamp || "—")} · Score {Number(h?.avg_score ?? 0)}%
+              </div>
+            ))}
           </div>
         </div>
 

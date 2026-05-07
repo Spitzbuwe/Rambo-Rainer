@@ -40,3 +40,12 @@ def test_quality_eval_suite_returns_score():
     assert body["ok"] is True
     assert isinstance(body.get("avg_score"), int)
     assert isinstance(body.get("cases"), list)
+
+
+def test_quality_eval_history_endpoint():
+    with m.app.test_client() as c:
+        r = c.get("/api/quality/eval-history?limit=5")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["ok"] is True
+    assert isinstance(body.get("entries"), list)

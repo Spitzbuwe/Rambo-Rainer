@@ -21526,6 +21526,15 @@ def quality_eval_suite_endpoint():
     return jsonify({"ok": True, "avg_score": avg_score, "cases": rows, "total_cases": total})
 
 
+@app.route("/api/quality/eval-history", methods=["GET"])
+def quality_eval_history_endpoint():
+    limit = max(1, min(int(request.args.get("limit") or 10), 60))
+    history = read_json_file(QUALITY_EVAL_HISTORY_FILE, [])
+    if not isinstance(history, list):
+        history = []
+    return jsonify({"ok": True, "entries": history[:limit], "total": len(history)})
+
+
 @app.route("/api/agent/run/list", methods=["GET"])
 def agent_run_list():
     state = load_project_auto_run_state()
