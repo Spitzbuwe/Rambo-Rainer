@@ -1293,6 +1293,34 @@ def _quality_attach_eval_to_latest_graph(avg_score: int, total: int, *, eval_qui
     return True
 
 
+def _quality_attach_eval_to_graph_run(run_id: str, avg_score: int, total: int, *, eval_quick: bool = False) -> bool:
+    rid = str(run_id or "").strip()
+    if not rid:
+        return False
+    rows = read_json_file(QUALITY_TASK_GRAPH_FILE, [])
+    if not isinstance(rows, list) or not rows:
+        return False
+    updated = False
+    new_rows = []
+    for row in rows:
+        if not isinstance(row, dict):
+            new_rows.append(row)
+            continue
+        if not updated and str(row.get("run_id") or "").strip() == rid:
+            row2 = dict(row)
+            row2["eval_avg_score"] = int(avg_score)
+            row2["eval_total_cases"] = int(total)
+            row2["eval_quick"] = bool(eval_quick)
+            row2["eval_attached_via"] = "run_id"
+            new_rows.append(row2)
+            updated = True
+        else:
+            new_rows.append(row)
+    if updated:
+        write_json_file(QUALITY_TASK_GRAPH_FILE, new_rows[:120])
+    return updated
+
+
 def format_display_timestamp(timestamp):
     raw = str(timestamp or "").strip()
     if not raw:
@@ -21528,7 +21556,9 @@ def quality_autofix_run_endpoint():
     passed = [r for r in final_results if bool(r.get("ok"))]
     failed = [r for r in final_results if not bool(r.get("ok"))]
     score = int(round((len(passed) / max(1, len(final_results))) * 100))
+    run_id = f"quality_{uuid4().hex[:12]}"
     entry = {
+        "run_id": run_id,
         "timestamp": get_timestamp(),
         "task": task,
         "checks": checks,
@@ -21565,6 +21595,7 @@ def quality_autofix_run_endpoint():
     _persist_quality_task_graph(entry)
     out = {
         "ok": True,
+        "run_id": run_id,
         "score": score,
         "checks_ok": len(failed) == 0,
         "passed_count": len(passed),
@@ -21600,7 +21631,15 @@ def quality_eval_suite_endpoint():
     history.insert(0, {"timestamp": get_timestamp(), "avg_score": avg_score, "cases": rows})
     write_json_file(QUALITY_EVAL_HISTORY_FILE, history[:60])
     if bool(data.get("attach_eval_to_latest_graph")):
-        _quality_attach_eval_to_latest_graph(avg_score, total, eval_quick=False)
+        target_run_id = str(data.get("attach_run_id") or "").strip()
+        attached = False
+        if target_run_id:
+            attached = _quality_attach_eval_to_graph_run(target_run_id, avg_score, total, eval_quick=False)
+        if not attached:
+            attached = _quality_attach_eval_to_latest_graph(avg_score, total, eval_quick=False)
+        return jsonify(
+            {"ok": True, "avg_score": avg_score, "cases": rows, "total_cases": total, "attached_to_graph": attached}
+        )
     return jsonify({"ok": True, "avg_score": avg_score, "cases": rows, "total_cases": total})
 
 

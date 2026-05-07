@@ -138,8 +138,12 @@ async function readJsonSafe(response) {
   if (!raw || !raw.trim()) return {};
   try {
     return JSON.parse(raw);
-  } catch {
-    return {};
+  } catch (e) {
+    return {
+      _parse_error: true,
+      _raw_preview: raw.slice(0, 300),
+      _error: String(e?.message || e || "json_parse_failed"),
+    };
   }
 }
 
@@ -551,6 +555,15 @@ function App() {
         throw new Error(`HTTP ${res.status}`);
       }
       const data = await readJsonSafe(res);
+      if (data?._parse_error) {
+        setQualityEval((s) => ({
+          ...s,
+          loading: false,
+          loadingKind: null,
+          error: `Eval-Suite: ungültiges JSON (${data._error || "parse error"})`,
+        }));
+        return;
+      }
       const nextTemp =
         typeof data?.temperature === "number" ? `${Math.round(data.temperature)}Â°C` : "--";
       setWeather({
@@ -884,6 +897,23 @@ function App() {
         return;
       }
       const afData = await readJsonSafe(afRes);
+      if (afData?._parse_error) {
+        setQualityEval((s) => ({
+          ...s,
+          loading: false,
+          loadingKind: null,
+          error: `Auto-Fix: ungültiges JSON (${afData._error || "parse error"})`,
+        }));
+        return;
+      }
+      const attachRunId = String(afData?.run_id || "").trim();
+      if (afData?.eval_avg_score != null && attachRunId) {
+        await apiFetch("/api/quality/eval-suite", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ attach_eval_to_latest_graph: true, attach_run_id: attachRunId, prompts: [] }),
+        });
+      }
       const [histRes, tgRes] = await Promise.all([
         apiFetch("/api/quality/eval-history?limit=5"),
         apiFetch("/api/quality/task-graph?limit=5"),
@@ -2466,5 +2496,4 @@ function App() {
 }
 
 export default App;
-
 

@@ -218,3 +218,42 @@ def test_eval_suite_attach_updates_recent_graph_head(monkeypatch):
     assert isinstance(last_graph, list)
     assert last_graph[0].get("eval_avg_score") == 90
     assert last_graph[0].get("eval_total_cases") == 1
+
+
+def test_eval_suite_attach_prefers_run_id(monkeypatch):
+    graph = [
+        {"run_id": "quality_a", "timestamp": m.get_timestamp(), "task": "a"},
+        {"run_id": "quality_b", "timestamp": m.get_timestamp(), "task": "b"},
+    ]
+    written = []
+
+    def rjf(path, default=None):
+        if path == m.QUALITY_EVAL_HISTORY_FILE:
+            return []
+        if path == m.QUALITY_TASK_GRAPH_FILE:
+            return list(graph)
+        return default if default is not None else []
+
+    def wjf(path, content):
+        written.append((path, content))
+
+    monkeypatch.setattr(m, "read_json_file", rjf)
+    monkeypatch.setattr(m, "write_json_file", wjf)
+    monkeypatch.setattr(
+        m,
+        "_quality_eval_run_cases",
+        lambda cases: ([{"name": "a", "ok": True, "score": 88, "has_text": True, "has_contract": False, "has_checks": False}], 1, 88),
+    )
+    with m.app.test_client() as c:
+        r = c.post(
+            "/api/quality/eval-suite",
+            json={"attach_eval_to_latest_graph": True, "attach_run_id": "quality_b"},
+        )
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body.get("attached_to_graph") is True
+    graph_writes = [w for w in written if w[0] == m.QUALITY_TASK_GRAPH_FILE]
+    assert graph_writes
+    last_graph = graph_writes[-1][1]
+    assert last_graph[1].get("eval_avg_score") == 88
+    assert last_graph[1].get("eval_attached_via") == "run_id"
