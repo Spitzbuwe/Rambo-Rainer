@@ -29,17 +29,33 @@ const TT_PANEL_BACKEND =
   "Backend-Zeile = GET /api/status (wie Kopfzeile). „Verbunden“ = Poll erfolgreich. Verwechseln mit Rambo Health (/api/health) oder Ollama (Chat/Canvas).";
 const STATUS_SOURCE_NOTE = "Quelle: /api/status (10s Poll)";
 
+function truncateUiText(s, max = 44) {
+  const t = String(s || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t) return "";
+  if (t.length <= max) return t;
+  return `${t.slice(0, Math.max(1, max - 1))}…`;
+}
+
 function mapQualityGraphEntry(e) {
   if (!e || typeof e !== "object") return null;
+  const finalFailed = Number(e.final_failed_count ?? 0);
+  const checks = Array.isArray(e.checks) ? e.checks : [];
   return {
     checkScore: Number.isFinite(Number(e.score)) ? Number(e.score) : null,
     initialFailed: Number(e.initial_failed_count ?? 0),
-    finalFailed: Number(e.final_failed_count ?? 0),
+    finalFailed,
     fixRounds: Array.isArray(e.fix_rounds) ? e.fix_rounds.length : 0,
     at: String(e.timestamp || "—"),
     evalScore: null,
     passedCount: null,
     failedCount: null,
+    taskLabel: truncateUiText(e.task, 40),
+    checksCount: checks.length,
+    autoFixOn: Boolean(e.auto_fix),
+    statusOk: finalFailed === 0,
+    statusLabel: finalFailed === 0 ? "OK" : "OFFEN",
   };
 }
 
@@ -2206,15 +2222,30 @@ function App() {
           {qualityEval.lastAutofix ? (
             <div className="dash-kv">
               <span className="dash-kv__k">Auto-Fix</span>
-              <span className="dash-kv__v dash-quality-trend--flat" title="Letzter Auto-Fix-Lauf + optional Eval">
+              <span
+                className={`dash-kv__v ${qualityEval.lastAutofix.statusOk ? "dash-quality-score--high" : "dash-quality-score--low"}`.trim()}
+                title={
+                  [
+                    qualityEval.lastAutofix.taskLabel ? `Task: ${qualityEval.lastAutofix.taskLabel}` : null,
+                    qualityEval.lastAutofix.checksCount
+                      ? `${qualityEval.lastAutofix.checksCount} Check(s), Auto-Fix ${qualityEval.lastAutofix.autoFixOn ? "an" : "aus"}`
+                      : null,
+                    "Letzter Lauf inkl. optional Re-Eval",
+                  ]
+                    .filter(Boolean)
+                    .join("\n") || undefined
+                }
+              >
+                {qualityEval.lastAutofix.statusLabel}
                 {qualityEval.lastAutofix.checkScore != null
-                  ? `${qualityEval.lastAutofix.checkScore}% Checks`
-                  : "—"}
+                  ? ` · ${qualityEval.lastAutofix.checkScore}% Checks`
+                  : " · —"}
                 {` · Fehler ${qualityEval.lastAutofix.initialFailed}→${qualityEval.lastAutofix.finalFailed}`}
                 {` · ${qualityEval.lastAutofix.fixRounds} Fix-Rd`}
                 {qualityEval.lastAutofix.evalScore != null
                   ? ` · Eval ${qualityEval.lastAutofix.evalScore}%`
                   : ""}
+                {qualityEval.lastAutofix.taskLabel ? ` · ${qualityEval.lastAutofix.taskLabel}` : ""}
                 {qualityEval.lastAutofix.at ? ` @ ${qualityEval.lastAutofix.at}` : ""}
               </span>
             </div>
@@ -2262,10 +2293,15 @@ function App() {
             {qualityEval.taskGraphTop.length === 0 && <div className="dash-code__line">—</div>}
             {qualityEval.taskGraphTop.map((row, idx) => {
               const g = mapQualityGraphEntry(row);
+              const fullTask = String(row?.task || "").trim();
               return (
-                <div key={`tg-${idx}-${String(row?.timestamp || "")}`} className="dash-code__line">
+                <div
+                  key={`tg-${idx}-${String(row?.timestamp || "")}`}
+                  className="dash-code__line"
+                  title={fullTask || undefined}
+                >
                   {g
-                    ? `${String(row?.timestamp || "—")} · ${g.checkScore ?? "?"}% · ${g.initialFailed}→${g.finalFailed} · ${g.fixRounds} Rd`
+                    ? `${String(row?.timestamp || "—")} · ${g.statusLabel} · ${g.checkScore ?? "?"}% · ${g.initialFailed}→${g.finalFailed} · ${g.fixRounds} Rd${g.taskLabel ? ` · ${g.taskLabel}` : ""}`
                     : "—"}
                 </div>
               );
