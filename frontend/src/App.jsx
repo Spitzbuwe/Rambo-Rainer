@@ -49,6 +49,7 @@ function mapQualityGraphEntry(e) {
     fixRounds: Array.isArray(e.fix_rounds) ? e.fix_rounds.length : 0,
     at: String(e.timestamp || "—"),
     evalScore: Number.isFinite(Number(e.eval_avg_score)) ? Number(e.eval_avg_score) : null,
+    evalQuick: Boolean(e.eval_quick),
     passedCount: null,
     failedCount: null,
     taskLabel: truncateUiText(e.task, 40),
@@ -849,6 +850,7 @@ function App() {
           auto_fix: true,
           max_fix_rounds: 2,
           eval_after: true,
+          eval_quick: true,
         }),
       });
       const afData = await readJsonSafe(afRes);
@@ -2248,7 +2250,7 @@ function App() {
                 {` · Fehler ${qualityEval.lastAutofix.initialFailed}→${qualityEval.lastAutofix.finalFailed}`}
                 {` · ${qualityEval.lastAutofix.fixRounds} Fix-Rd`}
                 {qualityEval.lastAutofix.evalScore != null
-                  ? ` · Eval ${qualityEval.lastAutofix.evalScore}%`
+                  ? ` · Eval ${qualityEval.lastAutofix.evalScore}%${qualityEval.lastAutofix.evalQuick ? " (kurz)" : ""}`
                   : ""}
                 {qualityEval.lastAutofix.taskLabel ? ` · ${qualityEval.lastAutofix.taskLabel}` : ""}
                 {qualityEval.lastAutofix.at ? ` @ ${qualityEval.lastAutofix.at}` : ""}
@@ -2277,6 +2279,7 @@ function App() {
             type="button"
             className="dash-btn dash-btn--block dash-btn--pink"
             style={{ marginTop: 8 }}
+            title="Checks + Auto-Fix, danach schnelles Eval (1 Case). Volle Eval-Suite: „Suite ausführen“."
             onClick={runQualityAutofixThenEval}
             disabled={qualityEval.loading}
           >
@@ -2306,7 +2309,7 @@ function App() {
                   title={fullTask || undefined}
                 >
                   {g
-                    ? `${String(row?.timestamp || "—")} · ${g.statusLabel} · ${g.checkScore ?? "?"}% · ${g.initialFailed}→${g.finalFailed} · ${g.fixRounds} Rd${g.evalScore != null ? ` · Eval ${g.evalScore}%` : ""}${g.taskLabel ? ` · ${g.taskLabel}` : ""}`
+                    ? `${String(row?.timestamp || "—")} · ${g.statusLabel} · ${g.checkScore ?? "?"}% · ${g.initialFailed}→${g.finalFailed} · ${g.fixRounds} Rd${g.evalScore != null ? ` · Eval ${g.evalScore}%${g.evalQuick ? " kurz" : ""}` : ""}${g.taskLabel ? ` · ${g.taskLabel}` : ""}`
                     : "—"}
                 </div>
               );

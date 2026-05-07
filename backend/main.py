@@ -1200,6 +1200,13 @@ def _quality_eval_default_prompts() -> list[dict]:
     ]
 
 
+def _quality_eval_quick_prompts() -> list[dict]:
+    """Ein kurzer read-only Case — für eval_after nach Auto-Fix ohne volle Suite-Laufzeit."""
+    return [
+        {"name": "read_smoke", "task": "nenne in einem Satz, was backend/main.py grob tut", "scope": "project", "mode": "safe"},
+    ]
+
+
 def _quality_eval_run_cases(cases: list) -> tuple[list[dict], int, int]:
     """Führt die Quality-Eval-Kaskade aus (direct-run pro Case). Gibt (rows, total, avg_score) zurück."""
     rows: list[dict] = []
@@ -21500,10 +21507,17 @@ def quality_autofix_run_endpoint():
     eval_after = bool(data.get("eval_after"))
     if eval_after:
         ep = data.get("prompts")
-        eval_cases = ep if isinstance(ep, list) and ep else _quality_eval_default_prompts()
+        eval_quick = bool(data.get("eval_quick"))
+        if isinstance(ep, list) and ep:
+            eval_cases = ep
+        elif eval_quick:
+            eval_cases = _quality_eval_quick_prompts()
+        else:
+            eval_cases = _quality_eval_default_prompts()
         rows, total, avg_score = _quality_eval_run_cases(eval_cases)
         entry["eval_avg_score"] = int(avg_score)
         entry["eval_total_cases"] = int(total)
+        entry["eval_quick"] = eval_quick
         history_ev = read_json_file(QUALITY_EVAL_HISTORY_FILE, [])
         if not isinstance(history_ev, list):
             history_ev = []
@@ -21527,6 +21541,7 @@ def quality_autofix_run_endpoint():
     if eval_after:
         out["eval_avg_score"] = entry.get("eval_avg_score")
         out["eval_total_cases"] = entry.get("eval_total_cases")
+        out["eval_quick"] = bool(entry.get("eval_quick"))
     return jsonify(out)
 
 
