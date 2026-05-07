@@ -37,6 +37,16 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.rainer-agent-release-note {
+  margin: 0.55rem 1rem 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  background: rgba(16, 185, 129, 0.12);
+  color: #d1fae5;
+  font-size: 0.78rem;
+}
+
 .rainer-agent-workspace input {
   width: 100%;
   box-sizing: border-box;

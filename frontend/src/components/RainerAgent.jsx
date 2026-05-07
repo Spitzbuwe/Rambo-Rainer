@@ -282,6 +282,9 @@ export default function RainerAgent({ apiBase = "", adminToken = "", onClose }) 
             Schließen
           </button>
         </header>
+        <div className="rainer-agent-release-note">
+          Quality Features aktiv: Confidence-Gate, empfohlene Checks, Check-Run PASS/FAIL und Farbkodierung.
+        </div>
         <div className="rainer-agent-workspace">
           <input
             type="text"
