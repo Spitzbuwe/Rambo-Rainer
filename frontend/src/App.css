@@ -228,6 +228,46 @@ body {
   text-shadow: 0 0 10px rgba(255, 0, 255, 0.45);
 }
 
+/* Quality Eval: Ampel + Trend */
+.dash-col--right .dash-kv__v.dash-quality-score--high {
+  color: #9cffd4;
+  border-color: rgba(0, 255, 136, 0.55);
+  background: rgba(0, 255, 136, 0.14);
+  text-shadow: 0 0 10px rgba(0, 255, 136, 0.35);
+}
+
+.dash-col--right .dash-kv__v.dash-quality-score--mid {
+  color: #fde68a;
+  border-color: rgba(250, 204, 21, 0.55);
+  background: rgba(250, 204, 21, 0.12);
+  text-shadow: 0 0 10px rgba(250, 204, 21, 0.25);
+}
+
+.dash-col--right .dash-kv__v.dash-quality-score--low {
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.55);
+  background: rgba(248, 113, 113, 0.12);
+  text-shadow: 0 0 10px rgba(248, 113, 113, 0.3);
+}
+
+.dash-col--right .dash-kv__v.dash-quality-trend--up {
+  color: #9cffd4;
+  border-color: rgba(0, 255, 136, 0.45);
+  background: rgba(0, 255, 136, 0.1);
+}
+
+.dash-col--right .dash-kv__v.dash-quality-trend--down {
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.dash-col--right .dash-kv__v.dash-quality-trend--flat {
+  color: #cbd5e1;
+  border-color: rgba(148, 163, 184, 0.45);
+  background: rgba(148, 163, 184, 0.1);
+}
+
 .dash-kv--stack {
   flex-direction: column;
   align-items: flex-start;

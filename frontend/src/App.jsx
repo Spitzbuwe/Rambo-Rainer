@@ -462,6 +462,7 @@ function App() {
   const [agentPats, setAgentPats] = useState([]);
   const [qualityEval, setQualityEval] = useState({
     loading: false,
+    loadingKind: null,
     avgScore: null,
     totalCases: 0,
     lastRunAt: "",
@@ -774,7 +775,7 @@ function App() {
   };
 
   const runQualityEvalSuite = useCallback(async () => {
-    setQualityEval((s) => ({ ...s, loading: true }));
+    setQualityEval((s) => ({ ...s, loading: true, loadingKind: "suite" }));
     try {
       const res = await apiFetch("/api/quality/eval-suite", {
         method: "POST",
@@ -787,13 +788,49 @@ function App() {
       setQualityEval((s) => ({
         ...s,
         loading: false,
+        loadingKind: null,
         avgScore: Number.isFinite(Number(data?.avg_score)) ? Number(data.avg_score) : null,
         totalCases: Number.isFinite(Number(data?.total_cases)) ? Number(data.total_cases) : 0,
         lastRunAt: new Date().toLocaleTimeString(),
         history: Array.isArray(hist?.entries) ? hist.entries : [],
       }));
     } catch {
-      setQualityEval((s) => ({ ...s, loading: false }));
+      setQualityEval((s) => ({ ...s, loading: false, loadingKind: null }));
+    }
+  }, []);
+
+  const runQualityAutofixThenEval = useCallback(async () => {
+    setQualityEval((s) => ({ ...s, loading: true, loadingKind: "chain" }));
+    try {
+      await apiFetch("/api/quality/autofix-run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          task: "Quality gate: Checks stabilisieren, danach Eval",
+          checks: ["python -m py_compile backend/main.py", "python -m pytest tests -q"],
+          auto_fix: true,
+          max_fix_rounds: 2,
+        }),
+      });
+      const res = await apiFetch("/api/quality/eval-suite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await readJsonSafe(res);
+      const histRes = await apiFetch("/api/quality/eval-history?limit=5");
+      const hist = await readJsonSafe(histRes);
+      setQualityEval((s) => ({
+        ...s,
+        loading: false,
+        loadingKind: null,
+        avgScore: Number.isFinite(Number(data?.avg_score)) ? Number(data.avg_score) : null,
+        totalCases: Number.isFinite(Number(data?.total_cases)) ? Number(data.total_cases) : 0,
+        lastRunAt: new Date().toLocaleTimeString(),
+        history: Array.isArray(hist?.entries) ? hist.entries : [],
+      }));
+    } catch {
+      setQualityEval((s) => ({ ...s, loading: false, loadingKind: null }));
     }
   }, []);
 
@@ -817,6 +854,26 @@ function App() {
       cancelled = true;
     };
   }, []);
+
+  const qualityScoreClass = useMemo(() => {
+    const s = qualityEval.avgScore;
+    if (s == null) return "";
+    if (s >= 80) return "dash-quality-score--high";
+    if (s >= 55) return "dash-quality-score--mid";
+    return "dash-quality-score--low";
+  }, [qualityEval.avgScore]);
+
+  const qualityTrend = useMemo(() => {
+    const h = qualityEval.history;
+    if (!Array.isArray(h) || h.length < 2) return null;
+    const a = Number(h[0]?.avg_score);
+    const b = Number(h[1]?.avg_score);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+    const d = a - b;
+    if (d > 0) return { cls: "dash-quality-trend--up", text: `↑ +${d}% vs. letzter Lauf` };
+    if (d < 0) return { cls: "dash-quality-trend--down", text: `↓ ${d}% vs. letzter Lauf` };
+    return { cls: "dash-quality-trend--flat", text: "→ gleich wie letzter Lauf" };
+  }, [qualityEval.history]);
 
   const avatarStatus = useMemo(() => {
     if (!isBackendReachableLabel(status.backend_status)) return "error";
@@ -2085,10 +2142,16 @@ function App() {
           <h3 className="dash-panel__title">Quality Eval</h3>
           <div className="dash-kv">
             <span className="dash-kv__k">Score</span>
-            <span className="dash-kv__v dash-kv__v--cyan">
+            <span className={`dash-kv__v ${qualityScoreClass}`.trim()}>
               {qualityEval.avgScore != null ? `${qualityEval.avgScore}%` : "—"}
             </span>
           </div>
+          {qualityTrend ? (
+            <div className="dash-kv">
+              <span className="dash-kv__k">Trend</span>
+              <span className={`dash-kv__v ${qualityTrend.cls}`.trim()}>{qualityTrend.text}</span>
+            </div>
+          ) : null}
           <div className="dash-kv">
             <span className="dash-kv__k">Cases</span>
             <span className="dash-kv__v">{qualityEval.totalCases || "—"}</span>
@@ -2103,7 +2166,20 @@ function App() {
             onClick={runQualityEvalSuite}
             disabled={qualityEval.loading}
           >
-            {qualityEval.loading ? "Läuft…" : "Suite ausführen"}
+            {qualityEval.loading && qualityEval.loadingKind === "suite"
+              ? "Suite läuft…"
+              : "Suite ausführen"}
+          </button>
+          <button
+            type="button"
+            className="dash-btn dash-btn--block dash-btn--pink"
+            style={{ marginTop: 8 }}
+            onClick={runQualityAutofixThenEval}
+            disabled={qualityEval.loading}
+          >
+            {qualityEval.loading && qualityEval.loadingKind === "chain"
+              ? "Auto-Fix + Re-Eval…"
+              : "Auto-Fix + Re-Eval"}
           </button>
           <div className="dash-sub">History</div>
           <div className="dash-code dash-l4-runs dash-l4-runs--short">
