@@ -1200,6 +1200,58 @@ def _quality_eval_default_prompts() -> list[dict]:
     ]
 
 
+def _quality_eval_run_cases(cases: list) -> tuple[list[dict], int, int]:
+    """Führt die Quality-Eval-Kaskade aus (direct-run pro Case). Gibt (rows, total, avg_score) zurück."""
+    rows: list[dict] = []
+    with app.test_client() as c:
+        for i, case in enumerate(cases):
+            if isinstance(case, dict):
+                name = str(case.get("name") or f"case_{i+1}")
+                task = str(case.get("task") or "").strip()
+                scope = str(case.get("scope") or "project").strip()
+                mode = str(case.get("mode") or "safe").strip()
+            else:
+                name = f"case_{i+1}"
+                task = str(case or "").strip()
+                scope = "project"
+                mode = "safe"
+            if not task:
+                rows.append({"name": name, "ok": False, "score": 0, "reason": "empty_task"})
+                continue
+            r = c.post("/api/direct-run", json={"task": task, "scope": scope, "mode": mode})
+            body = r.get_json(silent=True) or {}
+            has_text = bool(
+                str(
+                    body.get("formatted_response")
+                    or body.get("chat_response")
+                    or body.get("natural_message")
+                    or body.get("message")
+                    or ""
+                ).strip()
+            )
+            has_contract = isinstance(body.get("confidence_gate"), dict) and isinstance(body.get("task_memory"), dict)
+            has_checks = isinstance(body.get("recommended_checks"), list)
+            case_score = 0
+            case_score += 40 if r.status_code == 200 else 0
+            case_score += 25 if has_text else 0
+            case_score += 20 if has_contract else 0
+            case_score += 15 if has_checks else 0
+            rows.append(
+                {
+                    "name": name,
+                    "status_code": int(r.status_code),
+                    "ok": r.status_code == 200,
+                    "score": int(case_score),
+                    "has_text": has_text,
+                    "has_contract": has_contract,
+                    "has_checks": has_checks,
+                }
+            )
+    total = len(rows)
+    avg_score = int(round(sum(int(r.get("score") or 0) for r in rows) / max(1, total)))
+    return rows, total, avg_score
+
+
 def format_display_timestamp(timestamp):
     raw = str(timestamp or "").strip()
     if not raw:
@@ -21445,23 +21497,37 @@ def quality_autofix_run_endpoint():
         "score": score,
         "fix_rounds": fix_rounds,
     }
+    eval_after = bool(data.get("eval_after"))
+    if eval_after:
+        ep = data.get("prompts")
+        eval_cases = ep if isinstance(ep, list) and ep else _quality_eval_default_prompts()
+        rows, total, avg_score = _quality_eval_run_cases(eval_cases)
+        entry["eval_avg_score"] = int(avg_score)
+        entry["eval_total_cases"] = int(total)
+        history_ev = read_json_file(QUALITY_EVAL_HISTORY_FILE, [])
+        if not isinstance(history_ev, list):
+            history_ev = []
+        history_ev.insert(0, {"timestamp": get_timestamp(), "avg_score": avg_score, "cases": rows})
+        write_json_file(QUALITY_EVAL_HISTORY_FILE, history_ev[:60])
     _persist_quality_task_graph(entry)
-    return jsonify(
-        {
-            "ok": True,
-            "score": score,
-            "passed_count": len(passed),
-            "failed_count": len(failed),
-            "initial_results": initial_results,
-            "final_results": final_results,
-            "auto_fix": {
-                "enabled": auto_fix,
-                "rounds": fix_rounds,
-                "max_rounds": max_fix_rounds,
-            },
-            "task_graph": entry,
-        }
-    )
+    out = {
+        "ok": True,
+        "score": score,
+        "passed_count": len(passed),
+        "failed_count": len(failed),
+        "initial_results": initial_results,
+        "final_results": final_results,
+        "auto_fix": {
+            "enabled": auto_fix,
+            "rounds": fix_rounds,
+            "max_rounds": max_fix_rounds,
+        },
+        "task_graph": entry,
+    }
+    if eval_after:
+        out["eval_avg_score"] = entry.get("eval_avg_score")
+        out["eval_total_cases"] = entry.get("eval_total_cases")
+    return jsonify(out)
 
 
 @app.route("/api/quality/eval-suite", methods=["POST"])
@@ -21470,54 +21536,7 @@ def quality_eval_suite_endpoint():
     prompts = data.get("prompts")
     cases = prompts if isinstance(prompts, list) and prompts else _quality_eval_default_prompts()
 
-    rows: list[dict] = []
-    with app.test_client() as c:
-        for i, case in enumerate(cases):
-            if isinstance(case, dict):
-                name = str(case.get("name") or f"case_{i+1}")
-                task = str(case.get("task") or "").strip()
-                scope = str(case.get("scope") or "project").strip()
-                mode = str(case.get("mode") or "safe").strip()
-            else:
-                name = f"case_{i+1}"
-                task = str(case or "").strip()
-                scope = "project"
-                mode = "safe"
-            if not task:
-                rows.append({"name": name, "ok": False, "score": 0, "reason": "empty_task"})
-                continue
-            r = c.post("/api/direct-run", json={"task": task, "scope": scope, "mode": mode})
-            body = r.get_json(silent=True) or {}
-            has_text = bool(
-                str(
-                    body.get("formatted_response")
-                    or body.get("chat_response")
-                    or body.get("natural_message")
-                    or body.get("message")
-                    or ""
-                ).strip()
-            )
-            has_contract = isinstance(body.get("confidence_gate"), dict) and isinstance(body.get("task_memory"), dict)
-            has_checks = isinstance(body.get("recommended_checks"), list)
-            case_score = 0
-            case_score += 40 if r.status_code == 200 else 0
-            case_score += 25 if has_text else 0
-            case_score += 20 if has_contract else 0
-            case_score += 15 if has_checks else 0
-            rows.append(
-                {
-                    "name": name,
-                    "status_code": int(r.status_code),
-                    "ok": r.status_code == 200,
-                    "score": int(case_score),
-                    "has_text": has_text,
-                    "has_contract": has_contract,
-                    "has_checks": has_checks,
-                }
-            )
-
-    total = len(rows)
-    avg_score = int(round(sum(int(r.get("score") or 0) for r in rows) / max(1, total)))
+    rows, total, avg_score = _quality_eval_run_cases(cases)
     history = read_json_file(QUALITY_EVAL_HISTORY_FILE, [])
     if not isinstance(history, list):
         history = []
@@ -21533,6 +21552,15 @@ def quality_eval_history_endpoint():
     if not isinstance(history, list):
         history = []
     return jsonify({"ok": True, "entries": history[:limit], "total": len(history)})
+
+
+@app.route("/api/quality/task-graph", methods=["GET"])
+def quality_task_graph_endpoint():
+    limit = max(1, min(int(request.args.get("limit") or 10), 120))
+    rows = read_json_file(QUALITY_TASK_GRAPH_FILE, [])
+    if not isinstance(rows, list):
+        rows = []
+    return jsonify({"ok": True, "entries": rows[:limit], "total": len(rows)})
 
 
 @app.route("/api/agent/run/list", methods=["GET"])

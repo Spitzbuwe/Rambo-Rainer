@@ -48,7 +48,7 @@ function mapQualityGraphEntry(e) {
     finalFailed,
     fixRounds: Array.isArray(e.fix_rounds) ? e.fix_rounds.length : 0,
     at: String(e.timestamp || "—"),
-    evalScore: null,
+    evalScore: Number.isFinite(Number(e.eval_avg_score)) ? Number(e.eval_avg_score) : null,
     passedCount: null,
     failedCount: null,
     taskLabel: truncateUiText(e.task, 40),
@@ -848,38 +848,43 @@ function App() {
           checks: ["python -m py_compile backend/main.py", "python -m pytest tests -q"],
           auto_fix: true,
           max_fix_rounds: 2,
+          eval_after: true,
         }),
       });
       const afData = await readJsonSafe(afRes);
-      const res = await apiFetch("/api/quality/eval-suite", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const data = await readJsonSafe(res);
-      const histRes = await apiFetch("/api/quality/eval-history?limit=5");
+      const [histRes, tgRes] = await Promise.all([
+        apiFetch("/api/quality/eval-history?limit=5"),
+        apiFetch("/api/quality/task-graph?limit=5"),
+      ]);
       const hist = await readJsonSafe(histRes);
-      const tgRes = await apiFetch("/api/quality/task-graph?limit=5");
       const tg = await readJsonSafe(tgRes);
       const tgEntries = Array.isArray(tg?.entries) ? tg.entries : [];
       const tgEntry = afData?.task_graph && typeof afData.task_graph === "object" ? afData.task_graph : tgEntries[0];
       const base = mapQualityGraphEntry(tgEntry || null);
-      const evalScore = Number.isFinite(Number(data?.avg_score)) ? Number(data.avg_score) : null;
+      const evalScore =
+        base?.evalScore ??
+        (Number.isFinite(Number(afData?.eval_avg_score)) ? Number(afData.eval_avg_score) : null);
       const lastAutofix = base
         ? {
             ...base,
-            evalScore,
+            evalScore: evalScore ?? base.evalScore,
             passedCount: Number.isFinite(Number(afData?.passed_count)) ? Number(afData.passed_count) : null,
             failedCount: Number.isFinite(Number(afData?.failed_count)) ? Number(afData.failed_count) : null,
             at: new Date().toLocaleTimeString(),
           }
         : null;
+      const totalCases =
+        Number.isFinite(Number(afData?.task_graph?.eval_total_cases))
+          ? Number(afData.task_graph.eval_total_cases)
+          : Number.isFinite(Number(afData?.eval_total_cases))
+            ? Number(afData.eval_total_cases)
+            : 0;
       setQualityEval((s) => ({
         ...s,
         loading: false,
         loadingKind: null,
         avgScore: evalScore,
-        totalCases: Number.isFinite(Number(data?.total_cases)) ? Number(data.total_cases) : 0,
+        totalCases,
         lastRunAt: new Date().toLocaleTimeString(),
         history: Array.isArray(hist?.entries) ? hist.entries : [],
         lastAutofix,
@@ -2301,7 +2306,7 @@ function App() {
                   title={fullTask || undefined}
                 >
                   {g
-                    ? `${String(row?.timestamp || "—")} · ${g.statusLabel} · ${g.checkScore ?? "?"}% · ${g.initialFailed}→${g.finalFailed} · ${g.fixRounds} Rd${g.taskLabel ? ` · ${g.taskLabel}` : ""}`
+                    ? `${String(row?.timestamp || "—")} · ${g.statusLabel} · ${g.checkScore ?? "?"}% · ${g.initialFailed}→${g.finalFailed} · ${g.fixRounds} Rd${g.evalScore != null ? ` · Eval ${g.evalScore}%` : ""}${g.taskLabel ? ` · ${g.taskLabel}` : ""}`
                     : "—"}
                 </div>
               );
