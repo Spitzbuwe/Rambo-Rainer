@@ -140,6 +140,81 @@ def infer_ui_mode_contract(payload: dict) -> dict:
     return out
 
 
+def _infer_recommended_checks(payload: dict, ui_mode: str) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    existing = payload.get("recommended_checks")
+    if isinstance(existing, list) and existing:
+        return [str(x).strip() for x in existing if str(x).strip()]
+    if ui_mode not in {"project_change", "repair_task"}:
+        return []
+    changed = payload.get("changed_files") if isinstance(payload.get("changed_files"), list) else []
+    changed_txt = " ".join(str(x).lower() for x in changed)
+    checks: list[str] = ["python -m py_compile backend/main.py"]
+    if "frontend/" in changed_txt:
+        checks.append("npm run lint")
+    checks.append("python -m pytest tests -q")
+    seen: set[str] = set()
+    out: list[str] = []
+    for c in checks:
+        if c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
+def _infer_confidence(payload: dict, ui_mode: str) -> dict:
+    if not isinstance(payload, dict):
+        return {"confidence_score": 35, "confidence_label": "low", "confidence_reason": "unstructured_payload"}
+    if payload.get("error"):
+        return {"confidence_score": 20, "confidence_label": "low", "confidence_reason": "error_present"}
+    if ui_mode in {"clean_chat", "clarification", "workspace_analysis"}:
+        return {"confidence_score": 70, "confidence_label": "medium", "confidence_reason": "chat_or_read_mode"}
+    has_changes = bool(payload.get("has_changes")) or bool(payload.get("applied"))
+    verification = payload.get("verification_summary") if isinstance(payload.get("verification_summary"), dict) else {}
+    failed = verification.get("failed") if isinstance(verification.get("failed"), list) else []
+    blocked = verification.get("blocked") if isinstance(verification.get("blocked"), list) else []
+    if failed or blocked:
+        return {"confidence_score": 35, "confidence_label": "low", "confidence_reason": "verification_failed_or_blocked"}
+    if has_changes and verification:
+        return {"confidence_score": 88, "confidence_label": "high", "confidence_reason": "changes_with_verification"}
+    if has_changes:
+        return {"confidence_score": 62, "confidence_label": "medium", "confidence_reason": "changes_without_verification"}
+    return {"confidence_score": 72, "confidence_label": "medium", "confidence_reason": "no_changes"}
+
+
+def _infer_task_memory(payload: dict, ui_mode: str) -> dict:
+    if not isinstance(payload, dict):
+        payload = {}
+    route_mode = str(payload.get("route_mode") or "")
+    classification = str(payload.get("classification") or "")
+    changed = payload.get("changed_files") if isinstance(payload.get("changed_files"), list) else []
+    writes_files = bool(payload.get("writes_files")) or bool(changed)
+    done_criteria = [
+        "Intent korrekt geroutet",
+        "Antwort/Ergebnis strukturiert geliefert",
+    ]
+    if writes_files:
+        done_criteria.extend(
+            [
+                "Dateiänderungen nachvollziehbar aufgelistet",
+                "Empfohlene Verifikation ausgeführt oder markiert",
+            ]
+        )
+    assumptions = [
+        "Workspace- und Berechtigungszustand unverändert",
+        "Lokale Toolchain ist verfügbar",
+    ]
+    return {
+        "goal": str(payload.get("task_kind") or payload.get("status") or ui_mode or "direct_run_task"),
+        "route_mode": route_mode,
+        "classification": classification,
+        "writes_files": writes_files,
+        "done_criteria": done_criteria,
+        "assumptions": assumptions,
+    }
+
+
 def enrich_direct_run_response(payload: dict) -> dict:
     rs, ac, ca, ns = infer_direct_run_meta(payload)
     base = enrich_api_payload(
@@ -152,6 +227,11 @@ def enrich_direct_run_response(payload: dict) -> dict:
     contract = infer_ui_mode_contract(base)
     merged = dict(base)
     merged.update(contract)
+    ui_mode = str(merged.get("ui_mode") or "")
+    merged["recommended_checks"] = _infer_recommended_checks(merged, ui_mode)
+    merged["verification_required"] = bool(ui_mode in {"project_change", "repair_task"} and merged.get("writes_files"))
+    merged["confidence_gate"] = _infer_confidence(merged, ui_mode)
+    merged["task_memory"] = _infer_task_memory(merged, ui_mode)
     # Bei expliziten Datei-Edits (frontend/backend Pfad) kein super_builder-Metadatenblock.
     try:
         sel = str(merged.get("selected_target_path") or "").strip().lower()
