@@ -219,6 +219,8 @@ DESIGN_NOTES_FILE = DATA_DIR / "design_notes.json"
 UI_ACTIVITY_LOG_FILE = DATA_DIR / "ui_activity_log.json"
 PROJECT_MAP_FILE = DATA_DIR / "project_map.json"
 PROJECT_AUTO_RUN_STATE_FILE = DATA_DIR / "project_auto_run_state.json"
+QUALITY_TASK_GRAPH_FILE = DATA_DIR / "quality_task_graph.json"
+QUALITY_EVAL_HISTORY_FILE = DATA_DIR / "quality_eval_history.json"
 DIRECT_HISTORY_LIMIT = 12
 ALLOWED_FILE_TYPES = {"txt", "md", "json", "py", "html", "css", "js"}
 SAFE_FILENAME_PATTERN = re.compile(r"^[A-Za-z0-9_\-\.]+$")
@@ -1098,6 +1100,104 @@ def write_json_file(path, content):
 
 def get_timestamp():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _run_quality_check_command(command: str, timeout_sec: int = 300) -> dict:
+    cmd = str(command or "").strip()
+    if not cmd:
+        return {"command": "", "ok": False, "exit_code": -1, "stdout": "", "stderr": "empty_command", "duration_ms": 0}
+    started = time.time()
+    try:
+        cp = subprocess.run(
+            cmd,
+            cwd=str(PROJECT_DIR),
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=max(10, int(timeout_sec)),
+            check=False,
+        )
+        return {
+            "command": cmd,
+            "ok": cp.returncode == 0,
+            "exit_code": int(cp.returncode),
+            "stdout": str(cp.stdout or "")[-8000:],
+            "stderr": str(cp.stderr or "")[-8000:],
+            "duration_ms": int((time.time() - started) * 1000),
+        }
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "command": cmd,
+            "ok": False,
+            "exit_code": -2,
+            "stdout": str(getattr(exc, "stdout", "") or "")[-8000:],
+            "stderr": f"timeout_after_{int(timeout_sec)}s",
+            "duration_ms": int((time.time() - started) * 1000),
+        }
+    except Exception as exc:
+        return {
+            "command": cmd,
+            "ok": False,
+            "exit_code": -3,
+            "stdout": "",
+            "stderr": str(exc),
+            "duration_ms": int((time.time() - started) * 1000),
+        }
+
+
+def _persist_quality_task_graph(entry: dict) -> None:
+    history = read_json_file(QUALITY_TASK_GRAPH_FILE, [])
+    if not isinstance(history, list):
+        history = []
+    if isinstance(entry, dict):
+        history.insert(0, entry)
+    write_json_file(QUALITY_TASK_GRAPH_FILE, history[:120])
+
+
+def _auto_fix_via_direct_run(task: str, failed_commands: list[str], max_rounds: int = 2) -> list[dict]:
+    rounds: list[dict] = []
+    failed = [str(c).strip() for c in list(failed_commands or []) if str(c).strip()]
+    if not failed:
+        return rounds
+    safe_rounds = max(1, min(int(max_rounds or 1), 3))
+    with app.test_client() as c:
+        for idx in range(safe_rounds):
+            prompt = (
+                "Auto-Fix: Behebe die fehlschlagenden Verifikationschecks im Projekt minimal-invasiv.\n\n"
+                f"Nutzerziel: {str(task or '').strip()}\n\n"
+                "Fehlgeschlagene Checks:\n- "
+                + "\n- ".join(failed)
+                + "\n\n"
+                "Regeln: nur notwendige Änderungen, danach kurz zusammenfassen."
+            )
+            r = c.post("/api/direct-run", json={"task": prompt, "scope": "project", "mode": "safe"})
+            body = r.get_json(silent=True) or {}
+            rounds.append(
+                {
+                    "round": idx + 1,
+                    "ok": bool(r.status_code == 200 and not body.get("error")),
+                    "status_code": int(r.status_code),
+                    "message": str(
+                        body.get("formatted_response")
+                        or body.get("chat_response")
+                        or body.get("natural_message")
+                        or body.get("message")
+                        or body.get("error")
+                        or ""
+                    )[:1200],
+                }
+            )
+            if rounds[-1]["ok"]:
+                break
+    return rounds
+
+
+def _quality_eval_default_prompts() -> list[dict]:
+    return [
+        {"name": "chat_connectivity", "task": "überprüfe warum die app offline ist", "scope": "local", "mode": "apply"},
+        {"name": "read_intent", "task": "analysiere kurz backend/main.py und nenne 2 risiken", "scope": "project", "mode": "safe"},
+        {"name": "change_intent", "task": "füge in frontend eine kleine ui-verbesserung als plan hinzu", "scope": "project", "mode": "safe"},
+    ]
 
 
 def format_display_timestamp(timestamp):
@@ -21308,6 +21408,122 @@ def agent_run_status():
         "auto_rollback": False,
     }
     return jsonify(payload), 200
+
+
+@app.route("/api/quality/autofix-run", methods=["POST"])
+def quality_autofix_run_endpoint():
+    data = request.get_json(silent=True) or {}
+    task = str(data.get("task") or "").strip()
+    checks_in = data.get("checks")
+    checks = [str(c).strip() for c in checks_in] if isinstance(checks_in, list) else []
+    checks = [c for c in checks if c]
+    if not checks:
+        checks = ["python -m pytest tests -q"]
+    auto_fix = bool(data.get("auto_fix", True))
+    max_fix_rounds = max(1, min(int(data.get("max_fix_rounds") or 2), 3))
+    timeout_sec = max(15, min(int(data.get("timeout_sec") or 300), 1800))
+
+    initial_results = [_run_quality_check_command(cmd, timeout_sec=timeout_sec) for cmd in checks]
+    failed_commands = [r.get("command") for r in initial_results if not bool(r.get("ok"))]
+    fix_rounds: list[dict] = []
+    final_results = list(initial_results)
+
+    if auto_fix and failed_commands:
+        fix_rounds = _auto_fix_via_direct_run(task, [str(x) for x in failed_commands if x], max_rounds=max_fix_rounds)
+        final_results = [_run_quality_check_command(cmd, timeout_sec=timeout_sec) for cmd in checks]
+
+    passed = [r for r in final_results if bool(r.get("ok"))]
+    failed = [r for r in final_results if not bool(r.get("ok"))]
+    score = int(round((len(passed) / max(1, len(final_results))) * 100))
+    entry = {
+        "timestamp": get_timestamp(),
+        "task": task,
+        "checks": checks,
+        "auto_fix": auto_fix,
+        "initial_failed_count": len([r for r in initial_results if not bool(r.get("ok"))]),
+        "final_failed_count": len(failed),
+        "score": score,
+        "fix_rounds": fix_rounds,
+    }
+    _persist_quality_task_graph(entry)
+    return jsonify(
+        {
+            "ok": True,
+            "score": score,
+            "passed_count": len(passed),
+            "failed_count": len(failed),
+            "initial_results": initial_results,
+            "final_results": final_results,
+            "auto_fix": {
+                "enabled": auto_fix,
+                "rounds": fix_rounds,
+                "max_rounds": max_fix_rounds,
+            },
+            "task_graph": entry,
+        }
+    )
+
+
+@app.route("/api/quality/eval-suite", methods=["POST"])
+def quality_eval_suite_endpoint():
+    data = request.get_json(silent=True) or {}
+    prompts = data.get("prompts")
+    cases = prompts if isinstance(prompts, list) and prompts else _quality_eval_default_prompts()
+
+    rows: list[dict] = []
+    with app.test_client() as c:
+        for i, case in enumerate(cases):
+            if isinstance(case, dict):
+                name = str(case.get("name") or f"case_{i+1}")
+                task = str(case.get("task") or "").strip()
+                scope = str(case.get("scope") or "project").strip()
+                mode = str(case.get("mode") or "safe").strip()
+            else:
+                name = f"case_{i+1}"
+                task = str(case or "").strip()
+                scope = "project"
+                mode = "safe"
+            if not task:
+                rows.append({"name": name, "ok": False, "score": 0, "reason": "empty_task"})
+                continue
+            r = c.post("/api/direct-run", json={"task": task, "scope": scope, "mode": mode})
+            body = r.get_json(silent=True) or {}
+            has_text = bool(
+                str(
+                    body.get("formatted_response")
+                    or body.get("chat_response")
+                    or body.get("natural_message")
+                    or body.get("message")
+                    or ""
+                ).strip()
+            )
+            has_contract = isinstance(body.get("confidence_gate"), dict) and isinstance(body.get("task_memory"), dict)
+            has_checks = isinstance(body.get("recommended_checks"), list)
+            case_score = 0
+            case_score += 40 if r.status_code == 200 else 0
+            case_score += 25 if has_text else 0
+            case_score += 20 if has_contract else 0
+            case_score += 15 if has_checks else 0
+            rows.append(
+                {
+                    "name": name,
+                    "status_code": int(r.status_code),
+                    "ok": r.status_code == 200,
+                    "score": int(case_score),
+                    "has_text": has_text,
+                    "has_contract": has_contract,
+                    "has_checks": has_checks,
+                }
+            )
+
+    total = len(rows)
+    avg_score = int(round(sum(int(r.get("score") or 0) for r in rows) / max(1, total)))
+    history = read_json_file(QUALITY_EVAL_HISTORY_FILE, [])
+    if not isinstance(history, list):
+        history = []
+    history.insert(0, {"timestamp": get_timestamp(), "avg_score": avg_score, "cases": rows})
+    write_json_file(QUALITY_EVAL_HISTORY_FILE, history[:60])
+    return jsonify({"ok": True, "avg_score": avg_score, "cases": rows, "total_cases": total})
 
 
 @app.route("/api/agent/run/list", methods=["GET"])
