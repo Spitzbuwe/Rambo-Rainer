@@ -1259,6 +1259,40 @@ def _quality_eval_run_cases(cases: list) -> tuple[list[dict], int, int]:
     return rows, total, avg_score
 
 
+def _quality_graph_entry_recent(ts_str: str, max_age_sec: int = 2700) -> bool:
+    raw = str(ts_str or "").strip()
+    if not raw:
+        return False
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            dt = datetime.strptime(raw, fmt)
+            return (datetime.now() - dt).total_seconds() <= max_age_sec
+        except ValueError:
+            continue
+    return False
+
+
+def _quality_attach_eval_to_latest_graph(avg_score: int, total: int, *, eval_quick: bool = False) -> bool:
+    """Eval-Scores in den jüngsten Task-Graph-Eintrag schreiben, wenn frisch und noch ohne Eval."""
+    rows = read_json_file(QUALITY_TASK_GRAPH_FILE, [])
+    if not isinstance(rows, list) or not rows:
+        return False
+    head = rows[0]
+    if not isinstance(head, dict):
+        return False
+    if head.get("eval_avg_score") is not None:
+        return False
+    if not _quality_graph_entry_recent(str(head.get("timestamp") or ""), 2700):
+        return False
+    head2 = dict(head)
+    head2["eval_avg_score"] = int(avg_score)
+    head2["eval_total_cases"] = int(total)
+    head2["eval_quick"] = bool(eval_quick)
+    rows[0] = head2
+    write_json_file(QUALITY_TASK_GRAPH_FILE, rows[:120])
+    return True
+
+
 def format_display_timestamp(timestamp):
     raw = str(timestamp or "").strip()
     if not raw:
@@ -21505,28 +21539,34 @@ def quality_autofix_run_endpoint():
         "fix_rounds": fix_rounds,
     }
     eval_after = bool(data.get("eval_after"))
+    skip_eval_on_check_fail = bool(data.get("skip_eval_on_check_fail"))
     if eval_after:
-        ep = data.get("prompts")
-        eval_quick = bool(data.get("eval_quick"))
-        if isinstance(ep, list) and ep:
-            eval_cases = ep
-        elif eval_quick:
-            eval_cases = _quality_eval_quick_prompts()
+        if skip_eval_on_check_fail and len(failed) > 0:
+            entry["eval_skipped"] = True
+            entry["eval_skip_reason"] = "checks_still_failing"
         else:
-            eval_cases = _quality_eval_default_prompts()
-        rows, total, avg_score = _quality_eval_run_cases(eval_cases)
-        entry["eval_avg_score"] = int(avg_score)
-        entry["eval_total_cases"] = int(total)
-        entry["eval_quick"] = eval_quick
-        history_ev = read_json_file(QUALITY_EVAL_HISTORY_FILE, [])
-        if not isinstance(history_ev, list):
-            history_ev = []
-        history_ev.insert(0, {"timestamp": get_timestamp(), "avg_score": avg_score, "cases": rows})
-        write_json_file(QUALITY_EVAL_HISTORY_FILE, history_ev[:60])
+            ep = data.get("prompts")
+            eval_quick = bool(data.get("eval_quick"))
+            if isinstance(ep, list) and ep:
+                eval_cases = ep
+            elif eval_quick:
+                eval_cases = _quality_eval_quick_prompts()
+            else:
+                eval_cases = _quality_eval_default_prompts()
+            rows, total, avg_score = _quality_eval_run_cases(eval_cases)
+            entry["eval_avg_score"] = int(avg_score)
+            entry["eval_total_cases"] = int(total)
+            entry["eval_quick"] = eval_quick
+            history_ev = read_json_file(QUALITY_EVAL_HISTORY_FILE, [])
+            if not isinstance(history_ev, list):
+                history_ev = []
+            history_ev.insert(0, {"timestamp": get_timestamp(), "avg_score": avg_score, "cases": rows})
+            write_json_file(QUALITY_EVAL_HISTORY_FILE, history_ev[:60])
     _persist_quality_task_graph(entry)
     out = {
         "ok": True,
         "score": score,
+        "checks_ok": len(failed) == 0,
         "passed_count": len(passed),
         "failed_count": len(failed),
         "initial_results": initial_results,
@@ -21542,6 +21582,8 @@ def quality_autofix_run_endpoint():
         out["eval_avg_score"] = entry.get("eval_avg_score")
         out["eval_total_cases"] = entry.get("eval_total_cases")
         out["eval_quick"] = bool(entry.get("eval_quick"))
+        out["eval_skipped"] = bool(entry.get("eval_skipped"))
+        out["eval_skip_reason"] = str(entry.get("eval_skip_reason") or "")
     return jsonify(out)
 
 
@@ -21557,6 +21599,8 @@ def quality_eval_suite_endpoint():
         history = []
     history.insert(0, {"timestamp": get_timestamp(), "avg_score": avg_score, "cases": rows})
     write_json_file(QUALITY_EVAL_HISTORY_FILE, history[:60])
+    if bool(data.get("attach_eval_to_latest_graph")):
+        _quality_attach_eval_to_latest_graph(avg_score, total, eval_quick=False)
     return jsonify({"ok": True, "avg_score": avg_score, "cases": rows, "total_cases": total})
 
 

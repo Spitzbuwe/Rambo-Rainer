@@ -50,6 +50,8 @@ function mapQualityGraphEntry(e) {
     at: String(e.timestamp || "—"),
     evalScore: Number.isFinite(Number(e.eval_avg_score)) ? Number(e.eval_avg_score) : null,
     evalQuick: Boolean(e.eval_quick),
+    evalSkipped: Boolean(e.eval_skipped),
+    evalSkipReason: String(e.eval_skip_reason || ""),
     passedCount: null,
     failedCount: null,
     taskLabel: truncateUiText(e.task, 40),
@@ -494,6 +496,7 @@ function App() {
   const [qualityEval, setQualityEval] = useState({
     loading: false,
     loadingKind: null,
+    error: null,
     avgScore: null,
     totalCases: 0,
     lastRunAt: "",
@@ -501,6 +504,8 @@ function App() {
     lastAutofix: null,
     taskGraphTop: [],
   });
+  const [qualityChainFullEval, setQualityChainFullEval] = useState(false);
+  const [qualitySkipEvalOnFail, setQualitySkipEvalOnFail] = useState(true);
   const chatRef = useRef(null);
   const prevBackendRef = useRef(null);
   const autopilotSyncedRef = useRef(false);
@@ -808,13 +813,22 @@ function App() {
   };
 
   const runQualityEvalSuite = useCallback(async () => {
-    setQualityEval((s) => ({ ...s, loading: true, loadingKind: "suite" }));
+    setQualityEval((s) => ({ ...s, loading: true, loadingKind: "suite", error: null }));
     try {
       const res = await apiFetch("/api/quality/eval-suite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ attach_eval_to_latest_graph: true }),
       });
+      if (!res.ok) {
+        setQualityEval((s) => ({
+          ...s,
+          loading: false,
+          loadingKind: null,
+          error: `Eval-Suite: HTTP ${res.status}`,
+        }));
+        return;
+      }
       const data = await readJsonSafe(res);
       const [histRes, tgRes] = await Promise.all([
         apiFetch("/api/quality/eval-history?limit=5"),
@@ -827,19 +841,25 @@ function App() {
         ...s,
         loading: false,
         loadingKind: null,
+        error: data?.ok === false ? String(data?.error || "Eval-Suite fehlgeschlagen") : null,
         avgScore: Number.isFinite(Number(data?.avg_score)) ? Number(data.avg_score) : null,
         totalCases: Number.isFinite(Number(data?.total_cases)) ? Number(data.total_cases) : 0,
         lastRunAt: new Date().toLocaleTimeString(),
         history: Array.isArray(hist?.entries) ? hist.entries : [],
         taskGraphTop: tgEntries.slice(0, 3),
       }));
-    } catch {
-      setQualityEval((s) => ({ ...s, loading: false, loadingKind: null }));
+    } catch (e) {
+      setQualityEval((s) => ({
+        ...s,
+        loading: false,
+        loadingKind: null,
+        error: `Eval-Suite: ${String(e?.message || e || "Fehler")}`,
+      }));
     }
   }, []);
 
   const runQualityAutofixThenEval = useCallback(async () => {
-    setQualityEval((s) => ({ ...s, loading: true, loadingKind: "chain" }));
+    setQualityEval((s) => ({ ...s, loading: true, loadingKind: "chain", error: null }));
     try {
       const afRes = await apiFetch("/api/quality/autofix-run", {
         method: "POST",
@@ -850,9 +870,19 @@ function App() {
           auto_fix: true,
           max_fix_rounds: 2,
           eval_after: true,
-          eval_quick: true,
+          eval_quick: !qualityChainFullEval,
+          skip_eval_on_check_fail: qualitySkipEvalOnFail,
         }),
       });
+      if (!afRes.ok) {
+        setQualityEval((s) => ({
+          ...s,
+          loading: false,
+          loadingKind: null,
+          error: `Auto-Fix: HTTP ${afRes.status}`,
+        }));
+        return;
+      }
       const afData = await readJsonSafe(afRes);
       const [histRes, tgRes] = await Promise.all([
         apiFetch("/api/quality/eval-history?limit=5"),
@@ -866,10 +896,13 @@ function App() {
       const evalScore =
         base?.evalScore ??
         (Number.isFinite(Number(afData?.eval_avg_score)) ? Number(afData.eval_avg_score) : null);
+      const evalSkipped = Boolean(afData?.eval_skipped || base?.evalSkipped);
       const lastAutofix = base
         ? {
             ...base,
-            evalScore: evalScore ?? base.evalScore,
+            evalScore: evalSkipped ? null : evalScore ?? base.evalScore,
+            evalSkipped,
+            evalSkipReason: String(afData?.eval_skip_reason || base?.evalSkipReason || ""),
             passedCount: Number.isFinite(Number(afData?.passed_count)) ? Number(afData.passed_count) : null,
             failedCount: Number.isFinite(Number(afData?.failed_count)) ? Number(afData.failed_count) : null,
             at: new Date().toLocaleTimeString(),
@@ -881,21 +914,33 @@ function App() {
           : Number.isFinite(Number(afData?.eval_total_cases))
             ? Number(afData.eval_total_cases)
             : 0;
+      const errMsg =
+        afData?.ok === false
+          ? String(afData?.error || "Auto-Fix abgelehnt")
+          : !afData || typeof afData !== "object"
+            ? "Auto-Fix: ungültige Antwort"
+            : null;
       setQualityEval((s) => ({
         ...s,
         loading: false,
         loadingKind: null,
-        avgScore: evalScore,
-        totalCases,
+        error: errMsg,
+        avgScore: evalSkipped ? s.avgScore : evalScore,
+        totalCases: evalSkipped ? s.totalCases : totalCases,
         lastRunAt: new Date().toLocaleTimeString(),
         history: Array.isArray(hist?.entries) ? hist.entries : [],
         lastAutofix,
         taskGraphTop: tgEntries.slice(0, 3),
       }));
-    } catch {
-      setQualityEval((s) => ({ ...s, loading: false, loadingKind: null }));
+    } catch (e) {
+      setQualityEval((s) => ({
+        ...s,
+        loading: false,
+        loadingKind: null,
+        error: `Auto-Fix: ${String(e?.message || e || "Fehler")}`,
+      }));
     }
-  }, []);
+  }, [qualityChainFullEval, qualitySkipEvalOnFail]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2249,9 +2294,11 @@ function App() {
                   : " · —"}
                 {` · Fehler ${qualityEval.lastAutofix.initialFailed}→${qualityEval.lastAutofix.finalFailed}`}
                 {` · ${qualityEval.lastAutofix.fixRounds} Fix-Rd`}
-                {qualityEval.lastAutofix.evalScore != null
-                  ? ` · Eval ${qualityEval.lastAutofix.evalScore}%${qualityEval.lastAutofix.evalQuick ? " (kurz)" : ""}`
-                  : ""}
+                {qualityEval.lastAutofix.evalSkipped
+                  ? " · Eval übersprungen (Checks noch rot)"
+                  : qualityEval.lastAutofix.evalScore != null
+                    ? ` · Eval ${qualityEval.lastAutofix.evalScore}%${qualityEval.lastAutofix.evalQuick ? " (kurz)" : ""}`
+                    : ""}
                 {qualityEval.lastAutofix.taskLabel ? ` · ${qualityEval.lastAutofix.taskLabel}` : ""}
                 {qualityEval.lastAutofix.at ? ` @ ${qualityEval.lastAutofix.at}` : ""}
               </span>
@@ -2265,6 +2312,38 @@ function App() {
             <span className="dash-kv__k">Last Run</span>
             <span className="dash-kv__v">{qualityEval.lastRunAt || "—"}</span>
           </div>
+          {qualityEval.error ? (
+            <div className="dash-issue" style={{ marginBottom: 8 }}>
+              <span className="dash-issue__tag">!</span>
+              <span>{qualityEval.error}</span>
+            </div>
+          ) : null}
+          <label
+            className="dash-kv"
+            style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 4 }}
+          >
+            <input
+              type="checkbox"
+              checked={qualityChainFullEval}
+              onChange={(e) => setQualityChainFullEval(e.target.checked)}
+            />
+            <span className="dash-kv__v" style={{ textAlign: "left", flex: 1 }}>
+              Volle Eval-Suite nach Auto-Fix (3 Cases)
+            </span>
+          </label>
+          <label
+            className="dash-kv"
+            style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 8 }}
+          >
+            <input
+              type="checkbox"
+              checked={qualitySkipEvalOnFail}
+              onChange={(e) => setQualitySkipEvalOnFail(e.target.checked)}
+            />
+            <span className="dash-kv__v" style={{ textAlign: "left", flex: 1 }}>
+              Eval überspringen, solange Checks fehlschlagen
+            </span>
+          </label>
           <button
             type="button"
             className="dash-btn dash-btn--block"
@@ -2293,6 +2372,7 @@ function App() {
             {qualityEval.history.slice(0, 5).map((h, idx) => (
               <div key={`qe-${idx}-${String(h?.timestamp || "")}`} className="dash-code__line">
                 {String(h?.timestamp || "—")} · Score {Number(h?.avg_score ?? 0)}%
+                {Array.isArray(h?.cases) ? ` · ${h.cases.length} Cases` : ""}
               </div>
             ))}
           </div>
@@ -2309,7 +2389,13 @@ function App() {
                   title={fullTask || undefined}
                 >
                   {g
-                    ? `${String(row?.timestamp || "—")} · ${g.statusLabel} · ${g.checkScore ?? "?"}% · ${g.initialFailed}→${g.finalFailed} · ${g.fixRounds} Rd${g.evalScore != null ? ` · Eval ${g.evalScore}%${g.evalQuick ? " kurz" : ""}` : ""}${g.taskLabel ? ` · ${g.taskLabel}` : ""}`
+                    ? `${String(row?.timestamp || "—")} · ${g.statusLabel} · ${g.checkScore ?? "?"}% · ${g.initialFailed}→${g.finalFailed} · ${g.fixRounds} Rd${
+                        g.evalSkipped
+                          ? " · Eval überspr."
+                          : g.evalScore != null
+                            ? ` · Eval ${g.evalScore}%${g.evalQuick ? " kurz" : ""}`
+                            : ""
+                      }${g.taskLabel ? ` · ${g.taskLabel}` : ""}`
                     : "—"}
                 </div>
               );
