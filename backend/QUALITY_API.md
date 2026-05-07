@@ -37,3 +37,6 @@ When `attach_run_id` is provided, backend attaches eval score to that exact task
 2. Call `POST /api/quality/autofix-run` with `eval_after=true`.
 3. If needed, run `POST /api/quality/eval-suite` with `attach_run_id` from step 2.
 4. Inspect `GET /api/quality/task-graph?limit=5` and `GET /api/quality/eval-history?limit=5`.
+
+## Follow-up
+- PR-enablement update: branch includes post-merge validation note for run_id attach flow.
