@@ -29,6 +29,20 @@ const TT_PANEL_BACKEND =
   "Backend-Zeile = GET /api/status (wie Kopfzeile). „Verbunden“ = Poll erfolgreich. Verwechseln mit Rambo Health (/api/health) oder Ollama (Chat/Canvas).";
 const STATUS_SOURCE_NOTE = "Quelle: /api/status (10s Poll)";
 
+function mapQualityGraphEntry(e) {
+  if (!e || typeof e !== "object") return null;
+  return {
+    checkScore: Number.isFinite(Number(e.score)) ? Number(e.score) : null,
+    initialFailed: Number(e.initial_failed_count ?? 0),
+    finalFailed: Number(e.final_failed_count ?? 0),
+    fixRounds: Array.isArray(e.fix_rounds) ? e.fix_rounds.length : 0,
+    at: String(e.timestamp || "—"),
+    evalScore: null,
+    passedCount: null,
+    failedCount: null,
+  };
+}
+
 function apiUrl(pathOrQuery) {
   const p = pathOrQuery.startsWith("/") ? pathOrQuery : `/${pathOrQuery}`;
   return `${API_BASE}${p}`;
@@ -467,6 +481,8 @@ function App() {
     totalCases: 0,
     lastRunAt: "",
     history: [],
+    lastAutofix: null,
+    taskGraphTop: [],
   });
   const chatRef = useRef(null);
   const prevBackendRef = useRef(null);
@@ -783,8 +799,13 @@ function App() {
         body: JSON.stringify({}),
       });
       const data = await readJsonSafe(res);
-      const histRes = await apiFetch("/api/quality/eval-history?limit=5");
+      const [histRes, tgRes] = await Promise.all([
+        apiFetch("/api/quality/eval-history?limit=5"),
+        apiFetch("/api/quality/task-graph?limit=5"),
+      ]);
       const hist = await readJsonSafe(histRes);
+      const tg = await readJsonSafe(tgRes);
+      const tgEntries = Array.isArray(tg?.entries) ? tg.entries : [];
       setQualityEval((s) => ({
         ...s,
         loading: false,
@@ -793,6 +814,7 @@ function App() {
         totalCases: Number.isFinite(Number(data?.total_cases)) ? Number(data.total_cases) : 0,
         lastRunAt: new Date().toLocaleTimeString(),
         history: Array.isArray(hist?.entries) ? hist.entries : [],
+        taskGraphTop: tgEntries.slice(0, 3),
       }));
     } catch {
       setQualityEval((s) => ({ ...s, loading: false, loadingKind: null }));
@@ -802,7 +824,7 @@ function App() {
   const runQualityAutofixThenEval = useCallback(async () => {
     setQualityEval((s) => ({ ...s, loading: true, loadingKind: "chain" }));
     try {
-      await apiFetch("/api/quality/autofix-run", {
+      const afRes = await apiFetch("/api/quality/autofix-run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -812,6 +834,7 @@ function App() {
           max_fix_rounds: 2,
         }),
       });
+      const afData = await readJsonSafe(afRes);
       const res = await apiFetch("/api/quality/eval-suite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -820,14 +843,31 @@ function App() {
       const data = await readJsonSafe(res);
       const histRes = await apiFetch("/api/quality/eval-history?limit=5");
       const hist = await readJsonSafe(histRes);
+      const tgRes = await apiFetch("/api/quality/task-graph?limit=5");
+      const tg = await readJsonSafe(tgRes);
+      const tgEntries = Array.isArray(tg?.entries) ? tg.entries : [];
+      const tgEntry = afData?.task_graph && typeof afData.task_graph === "object" ? afData.task_graph : tgEntries[0];
+      const base = mapQualityGraphEntry(tgEntry || null);
+      const evalScore = Number.isFinite(Number(data?.avg_score)) ? Number(data.avg_score) : null;
+      const lastAutofix = base
+        ? {
+            ...base,
+            evalScore,
+            passedCount: Number.isFinite(Number(afData?.passed_count)) ? Number(afData.passed_count) : null,
+            failedCount: Number.isFinite(Number(afData?.failed_count)) ? Number(afData.failed_count) : null,
+            at: new Date().toLocaleTimeString(),
+          }
+        : null;
       setQualityEval((s) => ({
         ...s,
         loading: false,
         loadingKind: null,
-        avgScore: Number.isFinite(Number(data?.avg_score)) ? Number(data.avg_score) : null,
+        avgScore: evalScore,
         totalCases: Number.isFinite(Number(data?.total_cases)) ? Number(data.total_cases) : 0,
         lastRunAt: new Date().toLocaleTimeString(),
         history: Array.isArray(hist?.entries) ? hist.entries : [],
+        lastAutofix,
+        taskGraphTop: tgEntries.slice(0, 3),
       }));
     } catch {
       setQualityEval((s) => ({ ...s, loading: false, loadingKind: null }));
@@ -838,14 +878,25 @@ function App() {
     let cancelled = false;
     const load = async () => {
       try {
-        const histRes = await apiFetch("/api/quality/eval-history?limit=5");
+        const [histRes, tgRes] = await Promise.all([
+          apiFetch("/api/quality/eval-history?limit=5"),
+          apiFetch("/api/quality/task-graph?limit=5"),
+        ]);
         const hist = await readJsonSafe(histRes);
+        const tg = await readJsonSafe(tgRes);
         if (!cancelled) {
-          setQualityEval((s) => ({ ...s, history: Array.isArray(hist?.entries) ? hist.entries : [] }));
+          const tgEntries = Array.isArray(tg?.entries) ? tg.entries : [];
+          const first = tgEntries[0] ? mapQualityGraphEntry(tgEntries[0]) : null;
+          setQualityEval((s) => ({
+            ...s,
+            history: Array.isArray(hist?.entries) ? hist.entries : [],
+            lastAutofix: first || s.lastAutofix,
+            taskGraphTop: tgEntries.slice(0, 3),
+          }));
         }
       } catch {
         if (!cancelled) {
-          setQualityEval((s) => ({ ...s, history: [] }));
+          setQualityEval((s) => ({ ...s, history: [], taskGraphTop: [] }));
         }
       }
     };
@@ -2152,6 +2203,22 @@ function App() {
               <span className={`dash-kv__v ${qualityTrend.cls}`.trim()}>{qualityTrend.text}</span>
             </div>
           ) : null}
+          {qualityEval.lastAutofix ? (
+            <div className="dash-kv">
+              <span className="dash-kv__k">Auto-Fix</span>
+              <span className="dash-kv__v dash-quality-trend--flat" title="Letzter Auto-Fix-Lauf + optional Eval">
+                {qualityEval.lastAutofix.checkScore != null
+                  ? `${qualityEval.lastAutofix.checkScore}% Checks`
+                  : "—"}
+                {` · Fehler ${qualityEval.lastAutofix.initialFailed}→${qualityEval.lastAutofix.finalFailed}`}
+                {` · ${qualityEval.lastAutofix.fixRounds} Fix-Rd`}
+                {qualityEval.lastAutofix.evalScore != null
+                  ? ` · Eval ${qualityEval.lastAutofix.evalScore}%`
+                  : ""}
+                {qualityEval.lastAutofix.at ? ` @ ${qualityEval.lastAutofix.at}` : ""}
+              </span>
+            </div>
+          ) : null}
           <div className="dash-kv">
             <span className="dash-kv__k">Cases</span>
             <span className="dash-kv__v">{qualityEval.totalCases || "—"}</span>
@@ -2181,7 +2248,7 @@ function App() {
               ? "Auto-Fix + Re-Eval…"
               : "Auto-Fix + Re-Eval"}
           </button>
-          <div className="dash-sub">History</div>
+          <div className="dash-sub">Eval-Historie</div>
           <div className="dash-code dash-l4-runs dash-l4-runs--short">
             {qualityEval.history.length === 0 && <div className="dash-code__line">—</div>}
             {qualityEval.history.slice(0, 5).map((h, idx) => (
@@ -2189,6 +2256,20 @@ function App() {
                 {String(h?.timestamp || "—")} · Score {Number(h?.avg_score ?? 0)}%
               </div>
             ))}
+          </div>
+          <div className="dash-sub">Auto-Fix Verlauf</div>
+          <div className="dash-code dash-l4-runs dash-l4-runs--short">
+            {qualityEval.taskGraphTop.length === 0 && <div className="dash-code__line">—</div>}
+            {qualityEval.taskGraphTop.map((row, idx) => {
+              const g = mapQualityGraphEntry(row);
+              return (
+                <div key={`tg-${idx}-${String(row?.timestamp || "")}`} className="dash-code__line">
+                  {g
+                    ? `${String(row?.timestamp || "—")} · ${g.checkScore ?? "?"}% · ${g.initialFailed}→${g.finalFailed} · ${g.fixRounds} Rd`
+                    : "—"}
+                </div>
+              );
+            })}
           </div>
         </div>
 
