@@ -36,8 +36,17 @@ export default function RainerAgent({ apiBase = "", adminToken = "", onClose }) 
     ]);
   }, []);
 
+  const summarizeCheckResult = useCallback((text) => {
+    const t = String(text || "");
+    const okHits = (t.match(/\b(ok|passed|erfolgreich)\b/gi) || []).length;
+    const failHits = (t.match(/\b(fail|failed|fehlgeschlagen|error)\b/gi) || []).length;
+    if (failHits > 0) return { label: "FAIL", okHits, failHits };
+    if (okHits > 0) return { label: "PASS", okHits, failHits };
+    return { label: "UNKLAR", okHits, failHits };
+  }, []);
+
   const runChecks = useCallback(
-    async (checks) => {
+    async (checks, sourceEntryId = "") => {
       const list = Array.isArray(checks) ? checks.map((x) => String(x || "").trim()).filter(Boolean) : [];
       if (list.length === 0 || busy) return;
       setBusy(true);
@@ -75,14 +84,39 @@ export default function RainerAgent({ apiBase = "", adminToken = "", onClose }) 
           data.analysis ||
           data.error ||
           (res.ok ? "Checks ausgeführt (kein Textfeld in Antwort)." : `HTTP ${res.status}`);
-        append("assistant", msg);
+        const summary = summarizeCheckResult(msg);
+        const at = new Date().toLocaleTimeString();
+        append("assistant", msg, {
+          checkRun: {
+            status: summary.label,
+            okHits: summary.okHits,
+            failHits: summary.failHits,
+            at,
+          },
+        });
+        if (sourceEntryId) {
+          setEntries((prev) =>
+            prev.map((e) =>
+              e.id !== sourceEntryId
+                ? e
+                : {
+                    ...e,
+                    meta: {
+                      ...(e.meta && typeof e.meta === "object" ? e.meta : {}),
+                      lastCheckStatus: summary.label,
+                      lastCheckAt: at,
+                    },
+                  },
+            ),
+          );
+        }
       } catch (err) {
         append("assistant", `Check-Run fehlgeschlagen: ${err?.message ?? err}`);
       } finally {
         setBusy(false);
       }
     },
-    [busy, append, adminToken, apiBase]
+    [busy, append, adminToken, apiBase, summarizeCheckResult]
   );
 
   const send = useCallback(async () => {
@@ -276,11 +310,28 @@ export default function RainerAgent({ apiBase = "", adminToken = "", onClose }) 
                       Checks: {m.meta.checks.join(" | ")}
                     </div>
                   ) : null}
+                  {m.meta.lastCheckStatus ? (
+                    <div className="rainer-agent-meta-row">
+                      Letzter Check: {m.meta.lastCheckStatus}
+                      {m.meta.lastCheckAt ? ` (${m.meta.lastCheckAt})` : ""}
+                    </div>
+                  ) : null}
+                  {m.meta.checkRun && typeof m.meta.checkRun === "object" ? (
+                    <div className="rainer-agent-meta-row">
+                      Check-Run: {String(m.meta.checkRun.status || "UNKLAR")}
+                      {Number.isFinite(Number(m.meta.checkRun.okHits))
+                        ? ` · ok=${Number(m.meta.checkRun.okHits)}`
+                        : ""}
+                      {Number.isFinite(Number(m.meta.checkRun.failHits))
+                        ? ` · fail=${Number(m.meta.checkRun.failHits)}`
+                        : ""}
+                    </div>
+                  ) : null}
                   {Array.isArray(m.meta.checks) && m.meta.checks.length > 0 ? (
                     <button
                       type="button"
                       className="rainer-agent-checks-btn"
-                      onClick={() => runChecks(m.meta.checks)}
+                      onClick={() => runChecks(m.meta.checks, m.id)}
                       disabled={busy}
                     >
                       Checks ausführen
