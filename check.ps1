@@ -63,6 +63,16 @@ try {
     Pop-Location
 }
 
+Write-Host "4) Release check (Quality + Connectivity + Syntax)" -ForegroundColor Yellow
+try {
+    powershell -ExecutionPolicy Bypass -File ".\scripts\release-check.ps1"
+    if ($LASTEXITCODE -ne 0) { $script:exitCode = 40; Write-ReportLine "release-check failed exit=$LASTEXITCODE" }
+} catch {
+    $script:exitCode = 40
+    Write-ReportLine "release-check exception: $_"
+    throw
+}
+
 if ($exitCode -eq 0) {
     Write-ReportLine "all steps ok"
     Write-Host "All checks passed." -ForegroundColor Green
