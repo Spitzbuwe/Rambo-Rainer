@@ -406,6 +406,7 @@ function App() {
   const [status, setStatus] = useState({
     backend_status: BACKEND_STATUS_PENDING,
     ollama_ok: null,
+    last_status_check_at: "",
     system_mode: "Lokal & Autark",
     rainer_core: "Aktiv",
     model: "Llama3",
@@ -593,6 +594,7 @@ function App() {
           setStatus((s) => ({
             ...s,
             backend_status: `HTTP ${res.status}`,
+            last_status_check_at: new Date().toLocaleTimeString(),
           }));
           return;
         }
@@ -600,7 +602,11 @@ function App() {
         try {
           data = await res.json();
         } catch {
-          setStatus((s) => ({ ...s, backend_status: "Ungültige API-Antwort" }));
+          setStatus((s) => ({
+            ...s,
+            backend_status: "Ungültige API-Antwort",
+            last_status_check_at: new Date().toLocaleTimeString(),
+          }));
           return;
         }
         const apiStRaw = String(data?.status || "").trim().toLowerCase();
@@ -615,6 +621,7 @@ function App() {
           ...s,
           backend_status: backendLabel,
           ollama_ok: typeof data?.ollama_ok === "boolean" ? data.ollama_ok : s.ollama_ok,
+          last_status_check_at: new Date().toLocaleTimeString(),
           system_mode: String(data?.system_mode || s.system_mode),
           rainer_core: String(data?.rainer_core || s.rainer_core),
           model: String(data?.model || s.model),
@@ -628,7 +635,11 @@ function App() {
           // setAutopilotActive(!!data.autopilot.active); // dauerhaft aktiv
         }
       } catch {
-        setStatus((s) => ({ ...s, backend_status: "Nicht erreichbar" }));
+        setStatus((s) => ({
+          ...s,
+          backend_status: "Nicht erreichbar",
+          last_status_check_at: new Date().toLocaleTimeString(),
+        }));
       }
     };
     fetchStatus();
@@ -1336,12 +1347,17 @@ function App() {
   const pageStatusLabel = isBackendReachableLabel(status.backend_status)
     ? "Status Bereit"
     : `Status ${status.backend_status}`;
-  const quickDiagLine =
-    status.ollama_ok === true
+  const backendReachable = isBackendReachableLabel(status.backend_status);
+  const quickDiagLine = !backendReachable
+    ? "Diagnose: Backend offline/nicht erreichbar"
+    : status.ollama_ok === true
       ? "Diagnose: Backend ok, Ollama ok"
       : status.ollama_ok === false
         ? "Diagnose: Backend ok, Ollama offline"
-        : "Diagnose: Ollama-Status unbekannt";
+        : "Diagnose: Backend ok, Ollama-Status unbekannt";
+  const quickDiagMeta = status.last_status_check_at
+    ? `Letzter Check: ${status.last_status_check_at}`
+    : "Letzter Check: –";
 
   const topNavActive = rainerAgentOpen
     ? "rainer"
@@ -1435,6 +1451,7 @@ function App() {
             <span className="dash-kv__v dash-kv__v--cyan">{status.rainer_core}</span>
           </div>
           <p className="dash-hint">{quickDiagLine}</p>
+          <p className="dash-hint">{quickDiagMeta}</p>
           <div className="dash-mode">
             <button
               type="button"
