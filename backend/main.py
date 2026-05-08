@@ -221,6 +221,7 @@ PROJECT_MAP_FILE = DATA_DIR / "project_map.json"
 PROJECT_AUTO_RUN_STATE_FILE = DATA_DIR / "project_auto_run_state.json"
 QUALITY_TASK_GRAPH_FILE = DATA_DIR / "quality_task_graph.json"
 QUALITY_EVAL_HISTORY_FILE = DATA_DIR / "quality_eval_history.json"
+WRITE_AUDIT_LOG_FILE = DATA_DIR / "write_audit_log.json"
 DIRECT_HISTORY_LIMIT = 12
 ALLOWED_FILE_TYPES = {"txt", "md", "json", "py", "html", "css", "js"}
 SAFE_FILENAME_PATTERN = re.compile(r"^[A-Za-z0-9_\-\.]+$")
@@ -1100,6 +1101,38 @@ def write_json_file(path, content):
 
 def get_timestamp():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _policy_gate_payload(allowed: bool, reason: str, *, required_confirmation: bool = False) -> dict:
+    return {
+        "allowed": bool(allowed),
+        "reason": str(reason or ""),
+        "required_confirmation": bool(required_confirmation),
+    }
+
+
+def _append_write_audit_event(*, run_id: str, scope: str, mode: str, decision: str, allowed: bool, reason: str, task: str, target_files: list[str] | None = None) -> str:
+    event_id = f"audit_{uuid4().hex[:12]}"
+    rows = read_json_file(WRITE_AUDIT_LOG_FILE, [])
+    if not isinstance(rows, list):
+        rows = []
+    rows.insert(
+        0,
+        {
+            "event_id": event_id,
+            "timestamp": get_timestamp(),
+            "run_id": str(run_id or ""),
+            "scope": str(scope or ""),
+            "mode": str(mode or ""),
+            "decision": str(decision or ""),
+            "allowed": bool(allowed),
+            "reason": str(reason or ""),
+            "task": str(task or "")[:500],
+            "target_files": list(target_files or [])[:20],
+        },
+    )
+    write_json_file(WRITE_AUDIT_LOG_FILE, rows[:300])
+    return event_id
 
 
 def _run_quality_check_command(command: str, timeout_sec: int = 300) -> dict:
@@ -15763,6 +15796,16 @@ def direct_run():
     intent = classify_user_prompt_intent(cleaned_prompt)
 
     if pk == "risky_project_task":
+        _aeid = _append_write_audit_event(
+            run_id=run_id,
+            scope=scope,
+            mode=mode,
+            decision="risky_blocked",
+            allowed=False,
+            reason="risky_project_task",
+            task=cleaned_prompt,
+            target_files=[],
+        )
         risky_payload = {
             "ok": False,
             "success": False,
@@ -15781,7 +15824,7 @@ def direct_run():
             "workstream_events": [
                 _ws_event("guard", "error", "Blockiert", "Riskante Aktion", status="blocked"),
             ],
-            "run_trace": _trace_payload("risky_blocked", "risky_project_task"),
+
         }
         return jsonify(enrich_direct_run_response(risky_payload)), 403
 
@@ -16377,6 +16420,16 @@ def direct_run():
 
         write_guard = _validate_direct_run_paths([relative_path], "apply", task)
         if not bool(write_guard.get("ok")):
+            _aeid = _append_write_audit_event(
+                run_id=run_id,
+                scope="local",
+                mode="apply",
+                decision="guard_blocked",
+                allowed=False,
+                reason=DIRECT_RUN_GUARD_BLOCK_MESSAGE,
+                task=task,
+                target_files=[relative_path],
+            )
             blocked_payload = _build_direct_guard_block_payload(
                 scope="local",
                 mode="apply",
@@ -16393,11 +16446,23 @@ def direct_run():
                 {"phase": "analyze", "level": "info", "title": "Agent-Auftrag erkannt", "detail": "Auto-Apply aktiv", "status": "running"},
                 {"phase": "guard", "level": "error", "title": "Auftrag blockiert", "detail": DIRECT_RUN_GUARD_BLOCK_MESSAGE, "status": "blocked"},
             ]
+            blocked_payload["policy_gate"] = _policy_gate_payload(False, DIRECT_RUN_GUARD_BLOCK_MESSAGE, required_confirmation=True)
+            blocked_payload["audit_event_id"] = _aeid
             return jsonify(enrich_direct_run_response(blocked_payload)), 403
 
         before_content, before_exists = read_text_file(resolved_path)
         pytest_validation = validate_pytest_file(relative_path, proposed_content)
         if not bool(pytest_validation.get("ok")):
+            _aeid = _append_write_audit_event(
+                run_id=run_id,
+                scope="local",
+                mode="apply",
+                decision="pytest_guard_blocked",
+                allowed=False,
+                reason="invalid_pytest_file",
+                task=task,
+                target_files=[relative_path],
+            )
             blocked_payload = _build_invalid_test_file_payload(relative_path, scope="local", mode="apply", task=task)
             blocked_payload["run_id"] = run_id
             blocked_payload["recognized_task"] = {
@@ -16409,6 +16474,8 @@ def direct_run():
                 {"phase": "analyze", "level": "info", "title": "Agent-Auftrag erkannt", "detail": "Auto-Apply aktiv", "status": "running"},
                 {"phase": "guard", "level": "error", "title": "Ungültige Testdatei", "detail": "Kein pytest-Test erkannt.", "status": "blocked"},
             ]
+            blocked_payload["policy_gate"] = _policy_gate_payload(False, "invalid_pytest_file", required_confirmation=True)
+            blocked_payload["audit_event_id"] = _aeid
             return jsonify(enrich_direct_run_response(blocked_payload)), 400
 
         unsafe_check = detect_unsafe_large_rewrite(
@@ -16481,6 +16548,17 @@ def direct_run():
                         "- Keine."
                     ),
                 }
+                payload["policy_gate"] = _policy_gate_payload(True, "step_engine_recovery_applied", required_confirmation=False)
+                payload["audit_event_id"] = _append_write_audit_event(
+                    run_id=run_id,
+                    scope="local",
+                    mode="apply",
+                    decision="applied_recovery",
+                    allowed=True,
+                    reason="step_engine_recovery_applied",
+                    task=task,
+                    target_files=[relative_path],
+                )
                 payload = _enforce_real_change_success(task, payload, mode="apply")
                 return jsonify(enrich_direct_run_response(payload))
 
@@ -16499,6 +16577,17 @@ def direct_run():
             if isinstance(se_res, dict):
                 blocked_payload["step_engine_result"] = se_res
                 blocked_payload["auto_recovery_attempted"] = True
+            blocked_payload["policy_gate"] = _policy_gate_payload(False, "unsafe_large_rewrite", required_confirmation=True)
+            blocked_payload["audit_event_id"] = _append_write_audit_event(
+                run_id=run_id,
+                scope="local",
+                mode="apply",
+                decision="unsafe_rewrite_blocked",
+                allowed=False,
+                reason="unsafe_large_rewrite",
+                task=task,
+                target_files=[relative_path],
+            )
             return jsonify(enrich_direct_run_response(blocked_payload)), 400
 
         write_result = persist_text_file_change(
@@ -16527,6 +16616,17 @@ def direct_run():
                     {"phase": "write", "level": "error", "title": "Schreiben fehlgeschlagen", "detail": err, "status": "failed"},
                 ],
             }
+            payload["policy_gate"] = _policy_gate_payload(False, "write_failed", required_confirmation=False)
+            payload["audit_event_id"] = _append_write_audit_event(
+                run_id=run_id,
+                scope="local",
+                mode="apply",
+                decision="write_failed",
+                allowed=False,
+                reason="write_failed",
+                task=task,
+                target_files=[relative_path],
+            )
             return jsonify(enrich_direct_run_response(payload)), 500
 
         post_check = run_local_post_check(resolved_path, relative_path, proposed_content)
@@ -16579,6 +16679,17 @@ def direct_run():
                 "- Keine."
             ),
         }
+        payload["policy_gate"] = _policy_gate_payload(True, "direct_apply_success", required_confirmation=False)
+        payload["audit_event_id"] = _append_write_audit_event(
+            run_id=run_id,
+            scope="local",
+            mode="apply",
+            decision="applied",
+            allowed=True,
+            reason="direct_apply_success",
+            task=task,
+            target_files=[relative_path],
+        )
         payload = _enforce_real_change_success(task, payload, mode="apply")
         return jsonify(enrich_direct_run_response(payload))
 
