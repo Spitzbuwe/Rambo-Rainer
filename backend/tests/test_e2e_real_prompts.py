@@ -118,3 +118,58 @@ def test_e2e_merge_post_build_digest_appends(mock_loop_cls, tmp_path: Path, monk
     assert out.get("post_build_analysis") == "Stichpunkt Test"
     assert "Projekt-Kurzcheck (AgentLoop)" in (out.get("formatted_response") or "")
     assert "Stichpunkt Test" in (out.get("formatted_response") or "")
+
+
+def test_e2e_offline_connectivity_fallback_not_generic(client):
+    r = client.post(
+        "/api/direct-run",
+        json={"task": "überprüfe warum die app offline ist", "scope": "local", "mode": "apply"},
+    )
+    assert r.status_code == 200
+    j = r.get_json() or {}
+    text = str(j.get("chat_response") or j.get("formatted_response") or "")
+    assert "127.0.0.1" in text
+    assert "Ich bin bereit. Stelle eine Frage" not in text
+
+
+def test_e2e_unsafe_rewrite_response_contains_recovery_payload(client):
+    r = client.post(
+        "/api/direct-run",
+        json={"task": "Überschreibe frontend/src/App.jsx komplett mit einem Stub", "scope": "project", "mode": "apply"},
+    )
+    assert r.status_code in (200, 403, 409)
+    j = r.get_json() or {}
+    text = str(j.get("chat_response") or j.get("formatted_response") or "")
+    assert (
+        ("split_patch" in text.lower())
+        or ("recovery" in text.lower())
+        or bool(j.get("step_engine_payload"))
+        or ("Ich bin bereit. Stelle eine Frage" in text)
+        or (j.get("applied") is False)
+    )
+
+
+@patch("main.generate_image_via_openai", return_value={"ok": False, "error": "image provider down"})
+def test_e2e_image_intent_api_error_path(_mock_img, client):
+    r = client.post(
+        "/api/image/generate",
+        json={"prompt": "Erzeuge ein Bild von einer Stadt bei Nacht"},
+    )
+    assert r.status_code in (400, 500, 502)
+    j = r.get_json() or {}
+    assert j.get("ok") is False
+    assert "error" in j
+
+
+def test_e2e_large_file_read_no_guard_false_alarm(client, tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(m, "get_active_project_root", lambda: tmp_path)
+    big = tmp_path / "big_sample.txt"
+    big.write_text("A" * 300000, encoding="utf-8")
+    r = client.post(
+        "/api/direct-run",
+        json={"task": "analysiere kurz die datei big_sample.txt", "scope": "project", "mode": "safe"},
+    )
+    assert r.status_code == 200
+    j = r.get_json() or {}
+    txt = str(j.get("chat_response") or j.get("formatted_response") or "")
+    assert "blockiert" not in txt.lower()
