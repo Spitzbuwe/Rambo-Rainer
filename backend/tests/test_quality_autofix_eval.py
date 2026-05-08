@@ -210,7 +210,10 @@ def test_eval_suite_attach_updates_recent_graph_head(monkeypatch):
         lambda cases: ([{"name": "a", "ok": True, "score": 90, "has_text": True, "has_contract": False, "has_checks": False}], 1, 90),
     )
     with m.app.test_client() as c:
-        r = c.post("/api/quality/eval-suite", json={"attach_eval_to_latest_graph": True})
+        r = c.post(
+            "/api/quality/eval-suite",
+            json={"attach_eval_to_latest_graph": True, "allow_heuristic_fallback": True},
+        )
     assert r.status_code == 200
     graph_writes = [w for w in written if w[0] == m.QUALITY_TASK_GRAPH_FILE]
     assert graph_writes

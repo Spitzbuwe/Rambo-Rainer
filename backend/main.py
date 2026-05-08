@@ -21633,12 +21633,21 @@ def quality_eval_suite_endpoint():
     if bool(data.get("attach_eval_to_latest_graph")):
         target_run_id = str(data.get("attach_run_id") or "").strip()
         attached = False
+        attach_mode = "run_id"
         if target_run_id:
             attached = _quality_attach_eval_to_graph_run(target_run_id, avg_score, total, eval_quick=False)
-        if not attached:
+        elif bool(data.get("allow_heuristic_fallback")):
             attached = _quality_attach_eval_to_latest_graph(avg_score, total, eval_quick=False)
+            attach_mode = "heuristic_fallback"
         return jsonify(
-            {"ok": True, "avg_score": avg_score, "cases": rows, "total_cases": total, "attached_to_graph": attached}
+            {
+                "ok": True,
+                "avg_score": avg_score,
+                "cases": rows,
+                "total_cases": total,
+                "attached_to_graph": attached,
+                "attach_mode": attach_mode,
+            }
         )
     return jsonify({"ok": True, "avg_score": avg_score, "cases": rows, "total_cases": total})
 
