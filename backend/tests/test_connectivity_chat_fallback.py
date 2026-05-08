@@ -45,3 +45,17 @@ def test_agent_formatting_empty_connectivity_checklist():
         out = agent_api._formatting_chat_reply("überprüfe warum die app offline ist")
         assert "127.0.0.1" in out
         assert "Ich bin bereit. Stelle eine Frage" not in out
+
+
+@patch("main.generate_chat_response_plain_with_timeout", return_value="Ich bin bereit. Stelle eine Frage.")
+@patch("main.classify_user_prompt", return_value="unknown")
+def test_direct_run_unknown_project_prompt_avoids_generic_ready(_m_pk, _m_llm):
+    with m.app.test_client() as c:
+        r = c.post(
+            "/api/direct-run",
+            json={"task": "ändere bitte app.jsx und verbessere den header", "scope": "project", "mode": "apply"},
+        )
+    assert r.status_code == 200
+    body = r.get_json() or {}
+    text = str(body.get("chat_response") or body.get("formatted_response") or "")
+    assert "Ich bin bereit. Stelle eine Frage" not in text
