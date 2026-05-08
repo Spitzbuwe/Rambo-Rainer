@@ -66,10 +66,15 @@ try {
 Write-Host "4) Release check (Quality + Connectivity + Syntax)" -ForegroundColor Yellow
 try {
     powershell -ExecutionPolicy Bypass -File ".\scripts\release-check.ps1"
-    if ($LASTEXITCODE -ne 0) { $script:exitCode = 40; Write-ReportLine "release-check failed exit=$LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) {
+        $script:exitCode = 40
+        Write-ReportLine "release-check failed exit=$LASTEXITCODE mapped_exit=40"
+    } else {
+        Write-ReportLine "release-check ok exit=0"
+    }
 } catch {
     $script:exitCode = 40
-    Write-ReportLine "release-check exception: $_"
+    Write-ReportLine "release-check exception mapped_exit=40: $_"
     throw
 }
 

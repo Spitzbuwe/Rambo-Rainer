@@ -139,6 +139,11 @@ async function readJsonSafe(response) {
   try {
     return JSON.parse(raw);
   } catch (e) {
+    try {
+      const key = "rainer_json_parse_errors";
+      const n = Number(localStorage.getItem(key) || "0");
+      localStorage.setItem(key, String(Math.max(0, n) + 1));
+    } catch {}
     return {
       _parse_error: true,
       _raw_preview: raw.slice(0, 300),
@@ -2496,4 +2501,3 @@ function App() {
 }
 
 export default App;
-
