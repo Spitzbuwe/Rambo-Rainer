@@ -15631,6 +15631,19 @@ def build_read_only_project_analysis_reply(
 
 @app.route("/api/direct-run", methods=["POST"])
 def direct_run():
+    _run_started = time.time()
+    _run_decisions = []
+    def _trace_payload(route: str, classification: str, extra: dict | None = None):
+        payload = {
+            "route": str(route or ""),
+            "classification": str(classification or ""),
+            "duration_ms": int(max(0.0, (time.time() - _run_started) * 1000)),
+            "decisions": list(_run_decisions),
+        }
+        if isinstance(extra, dict) and extra:
+            payload.update(extra)
+        return payload
+
     data = request.get_json(silent=True) or {}
     scope = str(data.get("scope") or "local").strip().lower()
     mode = str(data.get("mode") or "apply").strip().lower()
@@ -15659,8 +15672,10 @@ def direct_run():
         return jsonify(ps_env), 200
 
     pk = classify_user_prompt(cleaned_prompt)
+    _run_decisions.append(f"classify:{pk}")
     if should_route_direct_run_as_chat(cleaned_prompt):
         pk = "chat"
+        _run_decisions.append("override:direct_run_as_chat")
     # Analyse-Prompts hart auf Read-Only routen (kein Auto-Datei-Template).
     analysis_markers = (
         "analysiere",
@@ -15682,9 +15697,11 @@ def direct_run():
         pk = "project_read"
     if any(m in low_prompt for m in analysis_markers) and not has_project_change_intent(cleaned_prompt):
         pk = "project_read"
+        _run_decisions.append("override:analysis_to_project_read")
     # Absicherung: Änderungsabsicht nie als reiner Chat (auch bei veralteter Klassifikation)
     if pk != "risky_project_task" and has_project_change_intent(cleaned_prompt):
         pk = "project_task"
+        _run_decisions.append("override:change_intent_to_project_task")
     user_mode_raw = str(data.get("user_mode") or data.get("intent_mode") or "").strip()
     pk = apply_user_mode_override(
         pk,
@@ -15764,6 +15781,7 @@ def direct_run():
             "workstream_events": [
                 _ws_event("guard", "error", "Blockiert", "Riskante Aktion", status="blocked"),
             ],
+            "run_trace": _trace_payload("risky_blocked", "risky_project_task"),
         }
         return jsonify(enrich_direct_run_response(risky_payload)), 403
 
@@ -15797,6 +15815,7 @@ def direct_run():
             "workstream_events": [
                 _ws_event("analysis", "info", "Chat", "Konversation (kein Dateizugriff)", status="done"),
             ],
+            "run_trace": _trace_payload("chat", "chat"),
         }
         return jsonify(enrich_direct_run_response(chat_payload)), 200
 
@@ -15850,6 +15869,7 @@ def direct_run():
             "workstream_events": [
                 _ws_event("analysis", "info", "Absicht", "Modus waehlen oder praezisieren", status="done"),
             ],
+            "run_trace": _trace_payload("intent_clarification", "unknown"),
         }
         return jsonify(enrich_direct_run_response(chat_payload)), 200
 
@@ -16078,6 +16098,7 @@ def direct_run():
                         status="done",
                     ),
                 ],
+                "run_trace": _trace_payload("project_read_fallback", "project_read"),
             }
         else:
             read_payload = {
@@ -16117,6 +16138,7 @@ def direct_run():
                         status="done",
                     ),
                 ],
+                "run_trace": _trace_payload("project_read_analysis", "project_read"),
             }
         if upload_ctx_meta.get("uploads") or upload_ctx_meta.get("errors"):
             read_payload["upload_context"] = upload_ctx_meta
