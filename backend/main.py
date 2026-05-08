@@ -1407,6 +1407,11 @@ def _extract_candidate_path(entry) -> str:
     return ""
 
 
+def _is_generic_ready_reply(text: str) -> bool:
+    t = str(text or "").strip().lower()
+    return ("ich bin bereit." in t) and ("stelle eine frage" in t)
+
+
 def _collect_direct_guard_paths(file_entries) -> list[str]:
     if file_entries is None:
         return []
@@ -15801,8 +15806,24 @@ def direct_run():
             chat_text = _inst_u
         else:
             chat_text = generate_chat_response_plain_with_timeout(augmented_prompt)
-            if not str(chat_text or "").strip():
-                chat_text = clarification_message_with_modes()
+            if (not str(chat_text or "").strip()) or (
+                has_project_change_intent(cleaned_prompt) and _is_generic_ready_reply(chat_text)
+            ):
+                chat_text = generate_chat_response_plain_with_timeout(
+                    "Antworte konkret auf Deutsch in 2-4 Sätzen. "
+                    "Wenn der Nutzer eine Projektänderung andeutet, nenne die zwei wahrscheinlichsten nächsten "
+                    "Schritte (Analyse und sichere Umsetzung) statt einer generischen Bereitschaftsantwort.\n\n"
+                    f"Nutzerprompt: {cleaned_prompt}"
+                )
+            if not str(chat_text or "").strip() or _is_generic_ready_reply(chat_text):
+                if has_project_change_intent(cleaned_prompt):
+                    chat_text = (
+                        "Ich erkenne eine Projektänderung, aber die Absicht ist noch zu ungenau. "
+                        "Sag mir bitte Ziel-Datei und gewünschte Änderung in einem Satz, "
+                        "dann setze ich es direkt um."
+                    )
+                else:
+                    chat_text = clarification_message_with_modes()
         chat_payload = {
             "ok": True,
             "success": True,
